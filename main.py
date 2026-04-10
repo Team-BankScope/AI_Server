@@ -24,6 +24,8 @@ def get_db_connection():
         return None
 
 # 프론트엔드의 "자동 접수" 버튼 클릭 시 오직 user_id만 전송
+
+# 특정 업무에 대해 숙련도가 높은 멤버를 함께 고려해서 로직 수정하기
 class AutoTaskRequest(BaseModel):
     user_id: int
 
@@ -35,7 +37,6 @@ def auto_insert_task(req: AutoTaskRequest):
 
     cursor = conn.cursor(dictionary=True)
     try:
-        # 1. DB에서 사용자 특성 실시간 조회
         query = """
             SELECT 
                 u.age,
@@ -50,9 +51,8 @@ def auto_insert_task(req: AutoTaskRequest):
         user_data = cursor.fetchone()
         
         if not user_data:
-            return {"result": "FAILURE"} # 사용자를 찾을 수 없음
+            return {"result": "FAILURE"}
             
-        # 데이터 전처리
         try:
             age_str = str(user_data['age']).replace('대', '').replace('세', '').strip() if user_data['age'] else '30'
             age = int(age_str)
@@ -73,7 +73,6 @@ def auto_insert_task(req: AutoTaskRequest):
             "recent_tx_count": recent_tx_count
         }])
         
-        # 2. 모델 예측 (0: 빠른업무, 1: 상담업무, 2: 기업/특수)
         pred = int(model.predict(input_df)[0])
         
         # 3. 비즈니스 룰에 따른 16개 세부 업무 매핑
@@ -101,7 +100,7 @@ def auto_insert_task(req: AutoTaskRequest):
             else:
                 task_detail_type = "금융상품가입"
                 
-        else:  # pred == 2
+        else:
             task_type = "기업 • 특수"
             assigned_level = "LEVEL_3"
             processing_time = 25
@@ -113,7 +112,6 @@ def auto_insert_task(req: AutoTaskRequest):
             else:
                 task_detail_type = "연체관리"
                 
-        # 4. 대기표 번호 생성
         cursor.execute("SELECT ticket_number FROM task WHERE ticket_number LIKE %s ORDER BY task_id DESC LIMIT 1", (f"{prefix}-%",))
         last_ticket = cursor.fetchone()
         next_num = 1
@@ -122,16 +120,59 @@ def auto_insert_task(req: AutoTaskRequest):
             next_num = int(num_part) + 1
         ticket_number = f"{prefix}-{next_num:03d}"
         
-        # 5. 대기 인원 파악 및 예상 대기 시간 계산
+
+
+        def get_min_level(level_str):
+            if level_str == "LEVEL_1": return 1
+            if level_str == "LEVEL_2": return 3
+            if level_str == "LEVEL_3": return 5
+            return 1
+            
+        min_level = get_min_level(assigned_level)
+        
         cursor.execute("SELECT COUNT(*) as cnt FROM task WHERE task_type = %s AND status = 'WAITING'", (task_type,))
         waiting_count_row = cursor.fetchone()
         waiting_count = waiting_count_row['cnt'] if waiting_count_row else 0
         
-        ranking = int(waiting_count) + 1
-        expected_waiting_time = ranking * processing_time
-        member_id = None
+        cursor.execute("SELECT COUNT(*) as cnt FROM member WHERE level >= %s AND status = 1", (min_level,))
+        available_member_count_row = cursor.fetchone()
+        available_member_count = available_member_count_row['cnt'] if available_member_count_row else 0
+        if available_member_count == 0:
+            available_member_count = 1
         
-        # 6. DB Insert
+        ranking = int(waiting_count) + 1
+        expected_waiting_time = int((waiting_count * processing_time) / available_member_count)
+        member_id = None
+
+        cursor.execute("SELECT * FROM task WHERE user_id = %s AND status = 'WAITING'", (req.user_id,))
+        waiting_tasks = cursor.fetchall()
+        
+        if waiting_tasks:
+            max_min_level = min_level
+            task_ids_to_update = []
+            
+            for task in waiting_tasks:
+                task_ids_to_update.append(task['task_id'])
+                task_min_level = get_min_level(task['assigned_level'])
+                if task_min_level > max_min_level:
+                    max_min_level = task_min_level
+                    
+            cursor.execute("SELECT id FROM member WHERE level >= %s AND status = 1 LIMIT 1", (max_min_level,))
+            member_row = cursor.fetchone()
+            if member_row:
+                member_id = member_row['id']
+                
+            if member_id is not None and task_ids_to_update:
+                format_strings = ','.join(['%s'] * len(task_ids_to_update))
+                update_query = f"UPDATE task SET member_id = %s WHERE task_id IN ({format_strings})"
+                cursor.execute(update_query, [member_id] + task_ids_to_update)
+        else:
+            cursor.execute("SELECT id FROM member WHERE level >= %s AND status = 1 LIMIT 1", (min_level,))
+            member_row = cursor.fetchone()
+            if member_row:
+                member_id = member_row['id']
+        
+
         insert_query = """
             INSERT INTO task (
                 user_id, ticket_number, task_type, task_detail_type,

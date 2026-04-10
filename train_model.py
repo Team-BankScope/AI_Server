@@ -43,6 +43,8 @@ df = pd.DataFrame({
     'target': targets
 })
 
+
+
 X = df.drop('target', axis=1)
 y = df['target']
 
