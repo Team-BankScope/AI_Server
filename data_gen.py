@@ -1,29 +1,47 @@
 import pandas as pd
 import numpy as np
 
-# 1. 가상 데이터 생성 (1000명)
+# 1. 실제 DB 구조(BankScope)에 맞춘 가상 데이터 생성 (1000명)
 np.random.seed(42)
 data_size = 1000
 
 data = {
-    'age': np.random.randint(20, 80, data_size), # 연령대
-    'is_vip': np.random.choice([0, 1], data_size, p=[0.9, 0.1]), # VIP 여부
-    'app_search_loan': np.random.randint(0, 10, data_size), # 최근 앱 대출 검색 횟수
-    'fx_history': np.random.choice([0, 1], data_size, p=[0.8, 0.2]), # 최근 외환 거래 이력
-    'visit_count_month': np.random.randint(0, 5, data_size) # 월 평균 방문 횟수
+    # 1. user 테이블 (나이)
+    'age': np.random.randint(20, 80, data_size),
+
+    # 2. user 테이블 (기업 고객 여부, user_type='corporate')
+    'is_corporate': np.random.choice([0, 1], data_size, p=[0.9, 0.1]),
+
+    # 3. account 테이블 (전체 계좌 잔액 합계, 0원 ~ 1억원)
+    'total_balance': np.random.randint(0, 100000000, data_size),
+
+    # 4. loan 테이블 (진행 중인 대출 여부)
+    'has_active_loan': np.random.choice([0, 1], data_size, p=[0.8, 0.2]),
+
+    # 5. transaction_history 테이블 (최근 한 달 거래 건수)
+    'recent_tx_count': np.random.randint(0, 50, data_size)
 }
 
 df = pd.DataFrame(data)
 
-# 2. 아주 간단한 '정답(Label)' 로직 만들기
-# 앱 검색이 많으면 대출(1), 외환 이력이 있으면 외환(2), 나머지는 일반(0)
+
+# 2. BankScope 비즈니스 룰에 맞춘 정답(Target) 할당 로직
 def assign_task(row):
-    if row['app_search_loan'] > 5: return 1 # 대출
-    if row['fx_history'] == 1: return 2     # 외환
-    return 0                                # 일반 입출금
+    # 1순위: 기업 고객이면 무조건 '기업 • 특수' (2)
+    if row['is_corporate'] == 1:
+        return 2
+
+        # 2순위: 대출이 있거나, 잔고가 5천만원 이상이거나, 65세 이상이면 '상담 업무' (1)
+    elif row['has_active_loan'] == 1 or row['total_balance'] >= 50000000 or row['age'] >= 65:
+        return 1
+
+        # 3순위: 그 외 일반 고객은 입출금 등 '빠른 업무' (0)
+    else:
+        return 0
+
 
 df['target_task'] = df.apply(assign_task, axis=1)
 
 # 3. CSV 파일로 저장
-df.to_csv('bank_customers.csv', index=False)
-print("가상 데이터 생성 완료: bank_customers.csv")
+df.to_csv('bank_customers_real.csv', index=False)
+print("실제 DB 기반 가상 데이터 생성 완료: bank_customers_real.csv")
