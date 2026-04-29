@@ -66,13 +66,13 @@ df = pd.DataFrame(data)
 def assign_task_probabilistic(row):
     # 기업 고객 (Target 2)
     if row['is_corporate'] == 1:
-        # 기업 고객도 15% 확률로 단순 업무(0)를 볼 수 있도록 설계
-        return np.random.choice([2, 0], p=[0.85, 0.15])
+        # 기업 고객도 5% 확률로 단순 업무(0)를 볼 수 있도록 설계
+        return np.random.choice([2, 0], p=[0.95, 0.05])
 
     # 상담 업무 (Target 1) - 대출보유, 고액잔고(5천만 이상), 고령층(65세 이상)
     elif row['has_active_loan'] == 1 or row['total_balance'] >= 50000000 or row['age'] >= 65:
         # 정석은 상담(1)이지만, 빠른 업무(0)나 기업창구(2)로 잘못 갈 확률도 부여 (학습용 노이즈)
-        return np.random.choice([1, 0, 2], p=[0.75, 0.20, 0.05])
+        return np.random.choice([1, 0], p=[0.95, 0.05])
 
     # 빠른 업무 (Target 0) - 일반 고객
     else:
