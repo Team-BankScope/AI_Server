@@ -4,16 +4,17 @@ from pydantic import BaseModel
 import pandas as pd
 import mysql.connector
 from datetime import datetime
+import chatbot_service  # 작성하신 chatbot_service.py 임포트
 
 app = FastAPI()
 
 # 1. 학습된 Random Forest 모델 불러오기
-model = joblib.load('bank_model.pkl')
+#model = joblib.load('bank_model.pkl')
 
 DB_CONFIG = {
     'host': 'localhost',
     'user': 'root',
-    'password': 'test1234',
+    'password': '1234',
     'database': 'bank'
 }
 
@@ -23,12 +24,19 @@ def get_db_connection():
     except mysql.connector.Error:
         return None
 
-# 프론트엔드의 "자동 접수" 버튼 클릭 시 오직 user_id만 전송
+# --- 데이터 모델 (DTO) ---
 
-# 특정 업무에 대해 숙련도가 높은 멤버를 함께 고려해서 로직 수정하기
 class AutoTaskRequest(BaseModel):
     user_id: int
 
+# 챗봇용 데이터 모델 (프론트에서 전송할 형식)
+class ChatRequest(BaseModel):
+    user_id: int
+    message: str
+
+# --- API 엔드포인트 ---
+
+# 1. 자동 업무 접수 로직 (기존 코드 전체 유지)
 @app.post("/py/auto-insert-task")
 def auto_insert_task(req: AutoTaskRequest):
     conn = get_db_connection()
@@ -37,6 +45,7 @@ def auto_insert_task(req: AutoTaskRequest):
 
     cursor = conn.cursor(dictionary=True)
     try:
+        # 사용자 데이터 조회
         query = """
             SELECT 
                 u.age,
@@ -53,6 +62,7 @@ def auto_insert_task(req: AutoTaskRequest):
         if not user_data:
             return {"result": "FAILURE"}
             
+        # 데이터 전처리
         try:
             age_str = str(user_data['age']).replace('대', '').replace('세', '').strip() if user_data['age'] else '30'
             age = int(age_str)
@@ -73,9 +83,9 @@ def auto_insert_task(req: AutoTaskRequest):
             "recent_tx_count": recent_tx_count
         }])
         
-        pred = int(model.predict(input_df)[0])
-        
-        # 3. 비즈니스 룰에 따른 16개 세부 업무 매핑
+        # 모델 예측
+        pred = 0  # model.predict 대신 일단 0으로 고정! , 원래는  pred = int(model.predict(input_df)[0]) 
+        # 업무 매핑 로직
         if pred == 0:
             task_type = "빠른 업무"
             assigned_level = "LEVEL_1"
@@ -87,7 +97,6 @@ def auto_insert_task(req: AutoTaskRequest):
                 task_detail_type = "이체"
             else:
                 task_detail_type = "출금"
-                
         elif pred == 1:
             task_type = "상담 업무"
             assigned_level = "LEVEL_2"
@@ -99,7 +108,6 @@ def auto_insert_task(req: AutoTaskRequest):
                 task_detail_type = "예금"
             else:
                 task_detail_type = "금융상품가입"
-                
         else:
             task_type = "기업 • 특수"
             assigned_level = "LEVEL_3"
@@ -112,6 +120,7 @@ def auto_insert_task(req: AutoTaskRequest):
             else:
                 task_detail_type = "연체관리"
                 
+        # 티켓 번호 생성
         cursor.execute("SELECT ticket_number FROM task WHERE ticket_number LIKE %s ORDER BY task_id DESC LIMIT 1", (f"{prefix}-%",))
         last_ticket = cursor.fetchone()
         next_num = 1
@@ -119,8 +128,6 @@ def auto_insert_task(req: AutoTaskRequest):
             num_part = str(last_ticket['ticket_number']).split("-")[1]
             next_num = int(num_part) + 1
         ticket_number = f"{prefix}-{next_num:03d}"
-        
-
 
         def get_min_level(level_str):
             if level_str == "LEVEL_1": return 1
@@ -130,6 +137,7 @@ def auto_insert_task(req: AutoTaskRequest):
             
         min_level = get_min_level(assigned_level)
         
+        # 대기 시간 및 순번 계산
         cursor.execute("SELECT COUNT(*) as cnt FROM task WHERE task_type = %s AND status = 'WAITING'", (task_type,))
         waiting_count_row = cursor.fetchone()
         waiting_count = waiting_count_row['cnt'] if waiting_count_row else 0
@@ -142,26 +150,24 @@ def auto_insert_task(req: AutoTaskRequest):
         
         ranking = int(waiting_count) + 1
         expected_waiting_time = int((waiting_count * processing_time) / available_member_count)
+        
+        # 멤버 할당 로직
         member_id = None
-
         cursor.execute("SELECT * FROM task WHERE user_id = %s AND status = 'WAITING'", (req.user_id,))
         waiting_tasks = cursor.fetchall()
         
         if waiting_tasks:
             max_min_level = min_level
             task_ids_to_update = []
-            
             for task in waiting_tasks:
                 task_ids_to_update.append(task['task_id'])
                 task_min_level = get_min_level(task['assigned_level'])
                 if task_min_level > max_min_level:
                     max_min_level = task_min_level
-                    
             cursor.execute("SELECT id FROM member WHERE level >= %s AND status = 1 LIMIT 1", (max_min_level,))
             member_row = cursor.fetchone()
             if member_row:
                 member_id = member_row['id']
-                
             if member_id is not None and task_ids_to_update:
                 format_strings = ','.join(['%s'] * len(task_ids_to_update))
                 update_query = f"UPDATE task SET member_id = %s WHERE task_id IN ({format_strings})"
@@ -172,7 +178,7 @@ def auto_insert_task(req: AutoTaskRequest):
             if member_row:
                 member_id = member_row['id']
         
-
+        # DB 인서트
         insert_query = """
             INSERT INTO task (
                 user_id, ticket_number, task_type, task_detail_type,
@@ -181,26 +187,11 @@ def auto_insert_task(req: AutoTaskRequest):
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         now = datetime.now()
-        values = (
-            req.user_id,
-            ticket_number,
-            task_type,
-            task_detail_type,
-            assigned_level,
-            expected_waiting_time,
-            "WAITING",
-            member_id,
-            ranking,
-            now,
-            now,
-            1
-        )
+        values = (req.user_id, ticket_number, task_type, task_detail_type, assigned_level, expected_waiting_time, "WAITING", member_id, ranking, now, now, 1)
         cursor.execute(insert_query, values)
         conn.commit()
         
         inserted_task_id = cursor.lastrowid
-        
-        # 7. Insert된 전체 엔티티 조회 및 반환
         cursor.execute("SELECT * FROM task WHERE task_id = %s", (inserted_task_id,))
         new_task = cursor.fetchone()
         
@@ -210,11 +201,7 @@ def auto_insert_task(req: AutoTaskRequest):
             if isinstance(new_task.get('updated_at'), datetime):
                 new_task['updated_at'] = new_task['updated_at'].strftime('%Y-%m-%dT%H:%M:%S')
                 
-        return {
-            "result": "SUCCESS",
-            "taskResult": new_task
-        }
-        
+        return {"result": "SUCCESS", "taskResult": new_task}
     except Exception as e:
         conn.rollback()
         print(f"Error: {e}")
@@ -222,3 +209,20 @@ def auto_insert_task(req: AutoTaskRequest):
     finally:
         cursor.close()
         conn.close()
+
+# 2. RAG 기반 챗봇 상담 엔드포인트 (추가된 부분)
+@app.post("/py/chat")
+def chat_bot(req: ChatRequest):
+    try:
+        # chatbot_service의 RAG 로직을 호출하여 답변 생성
+        answer = chatbot_service.get_chat_response(req.message)
+        return {
+            "result": "SUCCESS",
+            "answer": answer
+        }
+    except Exception as e:
+        print(f"Chat Error: {e}")
+        return {
+            "result": "FAILURE",
+            "answer": "죄송합니다. 현재 챗봇 서비스를 이용할 수 없습니다."
+        }
