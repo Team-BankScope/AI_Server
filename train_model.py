@@ -6,7 +6,7 @@ import joblib
 
 print("2. 랜덤 포레스트 모델 학습 시작...")
 
-# 1. 저장해둔 CSV 파일 불러오기 (파일명 매칭)
+# 1. 저장해둔 CSV 파일 불러오기
 df_loaded = pd.read_csv('bank_customers_real.csv')
 
 # 테스트해볼 피처 조합 (필요시 여기서 넣고 빼면서 테스트 가능)

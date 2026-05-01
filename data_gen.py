@@ -27,7 +27,7 @@ def realistic_target(row):
 
 df['target'] = df.apply(realistic_target, axis=1)
 
-# 3. 완성된 데이터를 CSV 파일로 저장 (팀장님 기존 세팅 파일명으로 매칭)
+# 3. 완성된 데이터를 CSV 파일로 저장
 csv_filename = 'bank_customers_real.csv'
 df.to_csv(csv_filename, index=False)
 
