@@ -1,57 +1,47 @@
 import pandas as pd
-import numpy as np
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, classification_report
 import joblib
 
-print("데이터베이스 로직 기반 가상 데이터 생성 및 모델 학습 시작...")
+print("2. 랜덤 포레스트 모델 학습 시작...")
 
-# 1. 1000명의 고객 방문 데이터 생성
-np.random.seed(42)
-n_samples = 1000
+# 1. 저장해둔 CSV 파일 불러오기 (파일명 매칭)
+df_loaded = pd.read_csv('bank_customers_real.csv')
 
-ages = np.random.randint(20, 75, n_samples)
-# 10%는 기업 고객
-is_corporate = np.random.choice([0, 1], p=[0.9, 0.1], size=n_samples)
-# 잔액: 0원 ~ 1억원
-total_balances = np.random.randint(0, 100000000, n_samples)
-# 30%는 대출 보유
-has_active_loan = np.random.choice([0, 1], p=[0.7, 0.3], size=n_samples)
-# 한 달 거래 건수
-recent_tx_count = np.random.randint(0, 50, n_samples)
+# 테스트해볼 피처 조합 (필요시 여기서 넣고 빼면서 테스트 가능)
+SELECTED_FEATURES = [
+    'age',
+    'is_corporate',
+    'total_balance',
+    'has_active_loan',
+    'recent_tx_count'
+]
 
-# 2. 은행 비즈니스 룰에 따른 타겟(정답) 할당
-targets = []
-for i in range(n_samples):
-    if is_corporate[i] == 1:
-        targets.append(2)  # 2: 기업/특수 업무
-    elif has_active_loan[i] == 1 or total_balances[i] > 50000000 or ages[i] > 60:
-        targets.append(1)  # 1: 상담 업무 (대출 상담, 고액 예금, 고령층)
-    else:
-        # 젊고 거래가 많으며 잔액이 평범하면 단순 창구 업무
-        if recent_tx_count[i] > 10:
-            targets.append(0)  # 0: 빠른 업무 (출금/이체 등)
-        else:
-            targets.append(np.random.choice([0, 1])) # 나머지는 랜덤
+# 2. 데이터 분리
+X = df_loaded[SELECTED_FEATURES]
+y = df_loaded['target']
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
 
-# DataFrame 생성
-df = pd.DataFrame({
-    'age': ages,
-    'is_corporate': is_corporate,
-    'total_balance': total_balances,
-    'has_active_loan': has_active_loan,
-    'recent_tx_count': recent_tx_count,
-    'target': targets
-})
+# 3. 모델 하이퍼파라미터 세팅 및 학습
+model = RandomForestClassifier(
+    n_estimators=500,
+    max_depth=15,
+    min_samples_split=5,
+    min_samples_leaf=3,
+    max_features='sqrt',
+    criterion='entropy',
+    random_state=42
+)
+model.fit(X_train, y_train)
 
+# 4. 정확도 확인
+y_pred = model.predict(X_test)
+print(f"\n🎯 최종 모델 정확도: {accuracy_score(y_test, y_pred) * 100:.2f}%")
+print("\n[상세 보고서]")
+print(classification_report(y_test, y_pred, target_names=['빠른업무(0)', '상담업무(1)', '특수업무(2)']))
 
-
-X = df.drop('target', axis=1)
-y = df['target']
-
-# 3. 모델 학습 (가볍고 빠르며 성능이 좋은 Random Forest)
-model = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42)
-model.fit(X, y)
-
-# 4. 모델 저장
-joblib.dump(model, 'bank_model.pkl')
-print("✅ 'bank_model.pkl' 생성 완료! 이 파일은 실제 DB 피처를 완벽하게 이해합니다.")
+# 5. 완성된 모델을 파일로 저장 (기존 파일명 매칭)
+model_filename = 'bank_model.pkl'
+joblib.dump(model, model_filename)
+print(f"\n💾 학습된 모델을 '{model_filename}'로 저장 완료!")
