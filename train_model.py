@@ -37,11 +37,11 @@ model.fit(X_train, y_train)
 
 # 4. 정확도 확인
 y_pred = model.predict(X_test)
-print(f"\n🎯 최종 모델 정확도: {accuracy_score(y_test, y_pred) * 100:.2f}%")
+print(f"\n최종 모델 정확도: {accuracy_score(y_test, y_pred) * 100:.2f}%")
 print("\n[상세 보고서]")
 print(classification_report(y_test, y_pred, target_names=['빠른업무(0)', '상담업무(1)', '특수업무(2)']))
 
 # 5. 완성된 모델을 파일로 저장 (기존 파일명 매칭)
 model_filename = 'bank_model.pkl'
 joblib.dump(model, model_filename)
-print(f"\n💾 학습된 모델을 '{model_filename}'로 저장 완료!")
+print(f"\n학습된 모델을 '{model_filename}'로 저장 완료!")
