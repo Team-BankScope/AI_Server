@@ -5,7 +5,7 @@ from sklearn.metrics import accuracy_score, classification_report
 import joblib
 import platform
 import matplotlib.pyplot as plt
-import seaborn as sns
+import shap
 
 print("2. 랜덤 포레스트 모델 학습 시작...")
 
@@ -29,55 +29,62 @@ X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_
 # 3. 모델 하이퍼파라미터 세팅 및 학습
 model = RandomForestClassifier(
     n_estimators=500,
-    max_depth=15,
-    min_samples_split=5,
-    min_samples_leaf=3,
-    max_features='sqrt',
-    criterion='entropy',
+    max_depth=5,
+    min_samples_split=20,
+    min_samples_leaf=10,
+    max_features='log2',
+    criterion='gini',
     random_state=42
 )
 model.fit(X_train, y_train)
 
-# # 4. 정확도 확인
-# y_train_pred = model.predict(X_train)
-# y_test_pred = model.predict(X_test) # 기존의 y_pred 역할
-#
-# print(f"\n학습 데이터 정확도: {accuracy_score(y_train, y_train_pred) * 100:.2f}%")
-# print(f"테스트 데이터 정확도(최종): {accuracy_score(y_test, y_test_pred) * 100:.2f}%")
-#
-# print("\n[상세 보고서]")
-# print(classification_report(y_test, y_test_pred, target_names=['빠른업무(0)', '상담업무(1)', '특수업무(2)']))
-#
-# # 5. XAI: Feature Importance (설명 가능한 AI 파트)
-# print("\nXAI: Feature Importance 분석 및 시각화 진행 중...")
-#
-# # 5-1. 한글 폰트 깨짐 방지 (내 컴퓨터 OS에 맞게 자동 세팅)
-# if platform.system() == 'Windows':
-#     plt.rc('font', family='Malgun Gothic') # 윈도우는 맑은 고딕
-# elif platform.system() == 'Darwin':
-#     plt.rc('font', family='AppleGothic')   # 맥은 애플 고딕
-# plt.rcParams['axes.unicode_minus'] = False # 마이너스 기호 깨짐 방지
-#
-# # 5-2. 중요도 데이터 추출 및 정렬
-# feature_importances = pd.Series(model.feature_importances_, index=X.columns).sort_values(ascending=False)
-#
-# # 5-3. 그래프 그리기
-# plt.figure(figsize=(10, 6))
-# sns.barplot(x=feature_importances.values, y=feature_importances.index, palette='viridis')
-# plt.title('Random Forest Feature Importance (어떤 데이터가 창구 분류에 가장 중요했을까?)')
-# plt.xlabel('Importance (불순도 감소량)')
-# plt.ylabel('Features')
-# plt.tight_layout()
-#
-# # 5-4. 화면에 띄우는 대신 이미지 파일로 저장
-# xai_filename = 'feature_importance_result.png'
-# plt.savefig(xai_filename, dpi=300) # dpi=300은 고화질 저장을 의미함
-# print(f"📸 찰칵! XAI 분석 그래프가 '{xai_filename}' 파일로 저장되었습니다!")
-#
-# # 만약 팝업창으로도 꼭 보고 싶다면
-# # plt.show()
-#
-# # 6. 완성된 모델을 파일로 저장 (기존 파일명 매칭)
-# model_filename = 'bank_model.pkl'
-# joblib.dump(model, model_filename)
-# print(f"\n학습된 모델을 '{model_filename}'로 저장 완료!")
+# 4. 정확도 확인
+y_train_pred = model.predict(X_train)
+y_test_pred = model.predict(X_test) # 기존의 y_pred 역할
+
+print(f"\n학습 데이터 정확도: {accuracy_score(y_train, y_train_pred) * 100:.2f}%")
+print(f"테스트 데이터 정확도(최종): {accuracy_score(y_test, y_test_pred) * 100:.2f}%")
+
+print("\n[상세 보고서]")
+print(classification_report(y_test, y_test_pred, target_names=['빠른업무(0)', '상담업무(1)', '특수업무(2)']))
+
+# 5. XAI: SHAP 설명 가능한 AI
+print("\nXAI: SHAP 분석 및 시각화 진행 중... (데이터를 깊게 분석하느라 몇 초 정도 걸릴 수 있습니다!)")
+
+# 5-1. 한글 폰트 깨짐 방지
+if platform.system() == 'Windows':
+    plt.rc('font', family='Malgun Gothic')
+elif platform.system() == 'Darwin':
+    plt.rc('font', family='AppleGothic')
+plt.rcParams['axes.unicode_minus'] = False
+
+# 5-2. SHAP Explainer 생성 및 값 계산
+explainer = shap.TreeExplainer(model)
+shap_values = explainer.shap_values(X_test)
+
+# 5-3. 그래프 그리기 준비
+plt.figure(figsize=(10, 6))
+
+# 5-4. SHAP Summary Plot (창구별 기여도 막대그래프)
+shap.summary_plot(
+    shap_values,
+    X_test,
+    plot_type="bar",
+    class_names=['빠른업무(0)', '상담업무(1)', '특수업무(2)'],
+    show=False # 바로 띄우지 않고 저장을 위해 False로 둠
+)
+
+plt.title('SHAP 분석: 어떤 데이터가 각 창구 배정에 가장 큰 영향을 미쳤는지', fontsize=14, pad=20)
+plt.tight_layout()
+
+# 5-5. 이미지로 저장
+xai_filename = 'shap_summary_result.png'
+plt.savefig(xai_filename, dpi=300, bbox_inches='tight')
+print(f"SHAP 분석 그래프가 '{xai_filename}' 파일로 저장되었습니다!")
+
+plt.close() # 다음 작업을 위해 메모리에서 그래프 창을 닫음
+
+# 6. 완성된 모델을 파일로 저장 (기존 파일명 매칭)
+model_filename = 'bank_model.pkl'
+joblib.dump(model, model_filename)
+print(f"\n학습된 모델을 '{model_filename}'로 저장 완료!")
