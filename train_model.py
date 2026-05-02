@@ -1,57 +1,89 @@
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.metrics import accuracy_score, classification_report
 import joblib
 
-print("데이터베이스 로직 기반 가상 데이터 생성 및 모델 학습 시작...")
+# main.py 의 FEATURE_COLUMNS 와 동일한 순서 유지 (어긋나면 추론 시 예측이 틀어짐)
+FEATURE_COLUMNS = ['age', 'is_corporate', 'total_balance', 'has_active_loan', 'recent_tx_count']
 
-# 1. 1000명의 고객 방문 데이터 생성
+print("1. BankScope 현실 데이터 3000건 생성 중...")
 np.random.seed(42)
-n_samples = 1000
+n_samples = 3000
 
-ages = np.random.randint(20, 75, n_samples)
-# 10%는 기업 고객
-is_corporate = np.random.choice([0, 1], p=[0.9, 0.1], size=n_samples)
-# 잔액: 0원 ~ 1억원
-total_balances = np.random.randint(0, 100000000, n_samples)
-# 30%는 대출 보유
-has_active_loan = np.random.choice([0, 1], p=[0.7, 0.3], size=n_samples)
-# 한 달 거래 건수
-recent_tx_count = np.random.randint(0, 50, n_samples)
+ages             = np.random.randint(18, 85, n_samples)
+is_corporate     = np.random.choice([0, 1], p=[0.85, 0.15], size=n_samples)
+total_balances   = np.random.exponential(scale=15000000, size=n_samples).astype(int)
+has_active_loan  = np.random.choice([0, 1], p=[0.7, 0.3], size=n_samples)
+recent_tx_counts = np.random.poisson(lam=15, size=n_samples)
 
-# 2. 은행 비즈니스 룰에 따른 타겟(정답) 할당
 targets = []
 for i in range(n_samples):
-    if is_corporate[i] == 1:
-        targets.append(2)  # 2: 기업/특수 업무
-    elif has_active_loan[i] == 1 or total_balances[i] > 50000000 or ages[i] > 60:
-        targets.append(1)  # 1: 상담 업무 (대출 상담, 고액 예금, 고령층)
-    else:
-        # 젊고 거래가 많으며 잔액이 평범하면 단순 창구 업무
-        if recent_tx_count[i] > 10:
-            targets.append(0)  # 0: 빠른 업무 (출금/이체 등)
-        else:
-            targets.append(np.random.choice([0, 1])) # 나머지는 랜덤
+    # 10% 확률로 노이즈 삽입 - 과적합 방지
+    if np.random.rand() < 0.1:
+        targets.append(np.random.choice([0, 1, 2]))
+        continue
 
-# DataFrame 생성
+    if is_corporate[i] == 1:
+        if total_balances[i] < 1000000 and recent_tx_counts[i] < 5:
+            targets.append(np.random.choice([0, 2], p=[0.7, 0.3]))
+        else:
+            targets.append(2)  # 기업/특수 업무
+    elif has_active_loan[i] == 1 or total_balances[i] > 40000000 or ages[i] > 65:
+        targets.append(1)      # 상담 업무
+    else:
+        if recent_tx_counts[i] > 5:
+            targets.append(0)  # 빠른 업무
+        else:
+            targets.append(1)
+
 df = pd.DataFrame({
-    'age': ages,
-    'is_corporate': is_corporate,
-    'total_balance': total_balances,
+    'age':             ages,
+    'is_corporate':    is_corporate,
+    'total_balance':   total_balances,
     'has_active_loan': has_active_loan,
-    'recent_tx_count': recent_tx_count,
-    'target': targets
+    'recent_tx_count': recent_tx_counts,
+    'target':          targets,
 })
 
-
-
-X = df.drop('target', axis=1)
+X = df[FEATURE_COLUMNS]
 y = df['target']
 
-# 3. 모델 학습 (가볍고 빠르며 성능이 좋은 Random Forest)
-model = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42)
-model.fit(X, y)
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42, stratify=y
+)
 
-# 4. 모델 저장
-joblib.dump(model, 'bank_model.pkl')
-print("✅ 'bank_model.pkl' 생성 완료! 이 파일은 실제 DB 피처를 완벽하게 이해합니다.")
+print("2. 랜덤 포레스트 모델 학습 중...")
+model = RandomForestClassifier(
+    n_estimators=200,
+    max_depth=8,
+    min_samples_split=5,
+    class_weight='balanced',  # 클래스 불균형 보정
+    random_state=42,
+)
+model.fit(X_train, y_train)
+
+print("3. 5-Fold 교차 검증 수행 중...")
+cv_scores = cross_val_score(model, X, y, cv=5, scoring='accuracy')
+print(f"   CV 평균 정확도: {cv_scores.mean() * 100:.2f}% +- {cv_scores.std() * 100:.2f}%")
+
+print("4. 모델 평가 (테스트 데이터셋 채점)")
+y_pred   = model.predict(X_test)
+accuracy = accuracy_score(y_test, y_pred)
+
+print(f"\n[OK] 최종 모델 정확도: {accuracy * 100:.2f}%")
+print("\n[상세 분류 리포트]")
+print(classification_report(y_test, y_pred, target_names=["빠른업무(0)", "상담업무(1)", "기업특수(2)"]))
+
+print("[피처 중요도]")
+for feat, importance in sorted(
+    zip(FEATURE_COLUMNS, model.feature_importances_), key=lambda x: -x[1]
+):
+    print(f"  {feat}: {importance:.4f}")
+
+if accuracy >= 0.85:
+    joblib.dump(model, 'bank_model.pkl')
+    print("\n[OK] 목표 달성! 'bank_model.pkl' 모델 저장 완료!")
+else:
+    print("\n[WARN] 정확도가 85% 미만이므로 모델을 저장하지 않습니다.")

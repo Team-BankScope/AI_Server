@@ -1,0 +1,18 @@
+# 환경변수 (DB 비밀번호 등 민감 정보)
+.env
+
+# 학습된 모델 파일 (용량이 크고 재현 가능하므로 제외)
+*.pkl
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# 가상환경
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
