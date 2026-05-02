@@ -9,12 +9,17 @@ import chatbot_service  # 작성하신 chatbot_service.py 임포트
 app = FastAPI()
 
 # 1. 학습된 Random Forest 모델 불러오기
-#model = joblib.load('bank_model.pkl')
+try:
+    model = joblib.load('bank_model.pkl')
+    print("BankScope AI 모델 로딩 성공")
+except Exception as e:
+    print(f"모델 로딩 실패 (bank_model.pkl 파일 확인): {e}")
+    model = None
 
 DB_CONFIG = {
     'host': 'localhost',
     'user': 'root',
-    'password': '1234',
+    'password': '0000',
     'database': 'bank'
 }
 
@@ -84,7 +89,11 @@ def auto_insert_task(req: AutoTaskRequest):
         }])
         
         # 모델 예측
-        pred = 0  # model.predict 대신 일단 0으로 고정! , 원래는  pred = int(model.predict(input_df)[0]) 
+        # pred = 0  # model.predict 대신 일단 0으로 고정! , 원래는  pred = int(model.predict(input_df)[0])
+        if model:
+            pred = int(model.predict(input_df)[0])
+        else:
+            pred = 0 # 만약 AI 모델이 오류로 안 켜졌다면 기본값(빠른업무)으로 보냄
         # 업무 매핑 로직
         if pred == 0:
             task_type = "빠른 업무"

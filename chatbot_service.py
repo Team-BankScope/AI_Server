@@ -13,7 +13,7 @@ def prepare_products_for_rag():
         conn = mysql.connector.connect(
             host='localhost', 
             user='root', 
-            password='1234',
+            password='0000',
             database='bank'
         )
         cursor = conn.cursor(dictionary=True)
