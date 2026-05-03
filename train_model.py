@@ -10,7 +10,7 @@ import shap
 print("2. 랜덤 포레스트 모델 학습 시작...")
 
 # 1. 저장해둔 CSV 파일 불러오기
-df_loaded = pd.read_csv('bank_customers_real.csv')
+df_loaded = pd.read_csv('bank_data.csv')
 
 # 테스트해볼 피처 조합 (필요시 여기서 넣고 빼면서 테스트 가능)
 SELECTED_FEATURES = [
@@ -88,3 +88,32 @@ plt.close() # 다음 작업을 위해 메모리에서 그래프 창을 닫음
 model_filename = 'bank_model.pkl'
 joblib.dump(model, model_filename)
 print(f"\n학습된 모델을 '{model_filename}'로 저장 완료!")
+
+
+# ===== 상품 추천 모델 추가 =====
+print("\n상품 추천 모델 학습 시작...")
+
+y_product = df_loaded['product_target']
+X_train_p, X_test_p, y_train_p, y_test_p = train_test_split(
+    X, y_product, test_size=0.2, random_state=42, stratify=y_product
+)
+
+product_model = RandomForestClassifier(
+    n_estimators=500,
+    max_depth=10,
+    min_samples_split=10,
+    min_samples_leaf=5,
+    max_features='sqrt',
+    criterion='entropy',
+    random_state=42
+)
+
+product_model.fit(X_train_p, y_train_p)
+y_pred_p = product_model.predict(X_test_p)
+
+print(f"상품 추천 정확도: {accuracy_score(y_test_p, y_pred_p) * 100:.2f}%")
+print(classification_report(y_test_p, y_pred_p,
+    target_names=['입출금통장(0)', '예금적금(1)', '대출상품(2)', '법인전용(3)']))
+
+joblib.dump(product_model, 'product_model.pkl')
+print("product_model.pkl 저장 완료!")

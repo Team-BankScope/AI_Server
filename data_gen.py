@@ -32,3 +32,18 @@ csv_filename = 'bank_customers_real.csv'
 df.to_csv(csv_filename, index=False)
 
 print(f"✅ 현실 로직이 반영된 데이터 {len(df)}건을 '{csv_filename}'로 저장 완료!")
+
+
+# ===== 상품 추천 데이터 추가 =====
+def assign_product(row):
+    noise = np.random.normal(0, 12, 4)
+
+    score_0 = 40 + (row['recent_tx_count'] * 1.2) - (row['age'] * 0.3) + noise[0]
+    score_1 = (row['total_balance'] / 1000000) * 1.5 + (row['age'] * 0.5) - (row['has_active_loan'] * 20) + noise[1]
+    score_2 = (row['has_active_loan'] * 80) + ((100000000 - row['total_balance']) / 1000000) * 0.3 + noise[2]
+    score_3 = (row['is_corporate'] * 200) + noise[3]
+
+    return np.argmax([score_0, score_1, score_2, score_3])
+
+df['product_target'] = df.apply(assign_product, axis=1)
+df.to_csv('bank_data.csv', index=False)

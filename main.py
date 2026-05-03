@@ -5,6 +5,7 @@ import pandas as pd
 import mysql.connector
 from datetime import datetime
 import chatbot_service  # 작성하신 chatbot_service.py 임포트
+import recommend_service
 
 app = FastAPI()
 
@@ -19,7 +20,11 @@ except Exception as e:
 DB_CONFIG = {
     'host': 'localhost',
     'user': 'root',
+<<<<<<< Updated upstream
     'password': '0000',
+=======
+    'password': 'test1234',
+>>>>>>> Stashed changes
     'database': 'bank'
 }
 
@@ -38,6 +43,10 @@ class AutoTaskRequest(BaseModel):
 class ChatRequest(BaseModel):
     user_id: int
     message: str
+
+# 프론트엔드에서 보낼 형태 정의
+class RecommendRequest(BaseModel):
+    user_id: int
 
 # --- API 엔드포인트 ---
 
@@ -234,4 +243,18 @@ def chat_bot(req: ChatRequest):
         return {
             "result": "FAILURE",
             "answer": "죄송합니다. 현재 챗봇 서비스를 이용할 수 없습니다."
+        }
+    
+
+# 3. 맞춤형 금융 상품 추천 엔드포인트 (추가된 부분)
+@app.post("/py/recommend")
+def recommend_product(req: RecommendRequest):
+    try:
+        result = recommend_service.get_recommendation(req.user_id)
+        return result
+    except Exception as e:
+        print(f"Recommend Error: {e}")
+        return {
+            "result": "FAILURE",
+            "message": "추천 서비스를 현재 이용할 수 없습니다."
         }
