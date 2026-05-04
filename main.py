@@ -19,7 +19,7 @@ app = FastAPI()
 DB_CONFIG = {
     'host': 'localhost',
     'user': 'root',
-    'password': '1234',
+    'password': '', #본인 DB 비밀번호 입력
     'database': 'bank'
 }
 
@@ -39,9 +39,9 @@ class ChatRequest(BaseModel):
     user_id: int
     message: str
 
-# --- API 엔드포인트 ---
 
-# 1. 자동 업무 접수 로직 
+
+
 @app.post("/py/auto-insert-task")
 def auto_insert_task(req: AutoTaskRequest):
     conn = get_db_connection()
@@ -67,7 +67,7 @@ def auto_insert_task(req: AutoTaskRequest):
         if not user_data:
             return {"result": "FAILURE"}
             
-        # 데이터 전처리
+      
         try:
             age_str = str(user_data['age']).replace('대', '').replace('세', '').strip() if user_data['age'] else '30'
             age = int(age_str)
@@ -240,14 +240,14 @@ recommender_obj = ProductRecommender('bank_data_2.csv')
 @app.get("/py/recommend/{user_id}")
 def get_user_recommendation(user_id: int):
     try:
-        # 인덱스 기반으로 유저 정보 가져오기
+       
         if user_id < 0 or user_id >= len(recommender_obj.df):
             return {"result": "FAILURE", "message": "유저 인덱스 범위 초과"}
         
         user_row = recommender_obj.df.iloc[user_id]
         user_profile = user_row[recommender_obj.feature_cols].to_dict()
         
-        # 협업 필터링 추천 실행
+        
         results = recommender_obj.get_recommendations(user_profile)
         
         return {

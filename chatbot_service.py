@@ -6,8 +6,8 @@ import numpy as np
 from langchain_community.vectorstores import FAISS
 from langchain_core.embeddings import Embeddings
 
-# --- [설정 및 API 키] ---
-GEMINI_API_KEY = "AIzaSyAIDGXF4qZfvOShPl_w53FpxJ43JK_fsYY"
+# --- [설정 및 API 키 (본인 거 넣으면 됩니다)] ---
+GEMINI_API_KEY = "YOUR_GEMINI_API_KEY"
 
 # --- [1단계: 문서 벡터화 (Embedding)] ---
 class RAGEmbedder(Embeddings):
