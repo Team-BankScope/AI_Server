@@ -4,7 +4,13 @@ from pydantic import BaseModel
 import pandas as pd
 import mysql.connector
 from datetime import datetime
-import chatbot_service  # 작성하신 chatbot_service.py 임포트
+import chatbot_service
+import recommender
+
+
+from recommender import ProductRecommender
+
+recommender = ProductRecommender('bank_data.csv')
 
 app = FastAPI()
 
@@ -19,7 +25,7 @@ except Exception as e:
 DB_CONFIG = {
     'host': 'localhost',
     'user': 'root',
-    'password': '0000',
+    'password': '1234',
     'database': 'bank'
 }
 
@@ -235,3 +241,29 @@ def chat_bot(req: ChatRequest):
             "result": "FAILURE",
             "answer": "죄송합니다. 현재 챗봇 서비스를 이용할 수 없습니다."
         }
+
+
+
+
+recommender_obj = ProductRecommender('bank_data_2.csv')
+
+@app.get("/py/recommend/{user_id}")
+def get_user_recommendation(user_id: int):
+    try:
+
+        if user_id < 0 or user_id >= len(recommender_obj.df):
+            return {"result": "FAILURE", "message": "유저 인덱스 범위 초과"}
+
+        user_row = recommender_obj.df.iloc[user_id]
+        user_profile = user_row[recommender_obj.feature_cols].to_dict()
+
+
+        results = recommender_obj.get_recommendations(user_profile)
+
+        return {
+            "result": "SUCCESS",
+            "user_id": user_id,
+            "recommendations": results
+        }
+    except Exception as e:
+        return {"result": "FAILURE", "message": str(e)}
