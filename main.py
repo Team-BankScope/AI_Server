@@ -4,12 +4,17 @@ from pydantic import BaseModel
 import pandas as pd
 import mysql.connector
 from datetime import datetime
-import chatbot_service  # 작성하신 chatbot_service.py 임포트
+import chatbot_service  
+import recommender 
+
+
+from recommender import ProductRecommender
+
+recommender = ProductRecommender('bank_data.csv')
 
 app = FastAPI()
 
-# 1. 학습된 Random Forest 모델 불러오기
-#model = joblib.load('bank_model.pkl')
+
 
 DB_CONFIG = {
     'host': 'localhost',
@@ -24,19 +29,19 @@ def get_db_connection():
     except mysql.connector.Error:
         return None
 
-# --- 데이터 모델 (DTO) ---
+
 
 class AutoTaskRequest(BaseModel):
     user_id: int
 
-# 챗봇용 데이터 모델 (프론트에서 전송할 형식)
+
 class ChatRequest(BaseModel):
     user_id: int
     message: str
 
 # --- API 엔드포인트 ---
 
-# 1. 자동 업무 접수 로직 (기존 코드 전체 유지)
+# 1. 자동 업무 접수 로직 
 @app.post("/py/auto-insert-task")
 def auto_insert_task(req: AutoTaskRequest):
     conn = get_db_connection()
@@ -45,7 +50,7 @@ def auto_insert_task(req: AutoTaskRequest):
 
     cursor = conn.cursor(dictionary=True)
     try:
-        # 사용자 데이터 조회
+      
         query = """
             SELECT 
                 u.age,
@@ -83,9 +88,9 @@ def auto_insert_task(req: AutoTaskRequest):
             "recent_tx_count": recent_tx_count
         }])
         
-        # 모델 예측
+      
         pred = 0  # model.predict 대신 일단 0으로 고정! , 원래는  pred = int(model.predict(input_df)[0]) 
-        # 업무 매핑 로직
+       
         if pred == 0:
             task_type = "빠른 업무"
             assigned_level = "LEVEL_1"
@@ -120,7 +125,7 @@ def auto_insert_task(req: AutoTaskRequest):
             else:
                 task_detail_type = "연체관리"
                 
-        # 티켓 번호 생성
+      
         cursor.execute("SELECT ticket_number FROM task WHERE ticket_number LIKE %s ORDER BY task_id DESC LIMIT 1", (f"{prefix}-%",))
         last_ticket = cursor.fetchone()
         next_num = 1
@@ -137,7 +142,7 @@ def auto_insert_task(req: AutoTaskRequest):
             
         min_level = get_min_level(assigned_level)
         
-        # 대기 시간 및 순번 계산
+      
         cursor.execute("SELECT COUNT(*) as cnt FROM task WHERE task_type = %s AND status = 'WAITING'", (task_type,))
         waiting_count_row = cursor.fetchone()
         waiting_count = waiting_count_row['cnt'] if waiting_count_row else 0
@@ -151,7 +156,7 @@ def auto_insert_task(req: AutoTaskRequest):
         ranking = int(waiting_count) + 1
         expected_waiting_time = int((waiting_count * processing_time) / available_member_count)
         
-        # 멤버 할당 로직
+       
         member_id = None
         cursor.execute("SELECT * FROM task WHERE user_id = %s AND status = 'WAITING'", (req.user_id,))
         waiting_tasks = cursor.fetchall()
@@ -178,7 +183,7 @@ def auto_insert_task(req: AutoTaskRequest):
             if member_row:
                 member_id = member_row['id']
         
-        # DB 인서트
+      
         insert_query = """
             INSERT INTO task (
                 user_id, ticket_number, task_type, task_detail_type,
@@ -210,11 +215,11 @@ def auto_insert_task(req: AutoTaskRequest):
         cursor.close()
         conn.close()
 
-# 2. RAG 기반 챗봇 상담 엔드포인트 (추가된 부분)
+
 @app.post("/py/chat")
 def chat_bot(req: ChatRequest):
     try:
-        # chatbot_service의 RAG 로직을 호출하여 답변 생성
+        
         answer = chatbot_service.get_chat_response(req.message)
         return {
             "result": "SUCCESS",
@@ -226,3 +231,29 @@ def chat_bot(req: ChatRequest):
             "result": "FAILURE",
             "answer": "죄송합니다. 현재 챗봇 서비스를 이용할 수 없습니다."
         }
+    
+
+
+
+recommender_obj = ProductRecommender('bank_data_2.csv')
+
+@app.get("/py/recommend/{user_id}")
+def get_user_recommendation(user_id: int):
+    try:
+        # 인덱스 기반으로 유저 정보 가져오기
+        if user_id < 0 or user_id >= len(recommender_obj.df):
+            return {"result": "FAILURE", "message": "유저 인덱스 범위 초과"}
+        
+        user_row = recommender_obj.df.iloc[user_id]
+        user_profile = user_row[recommender_obj.feature_cols].to_dict()
+        
+        # 협업 필터링 추천 실행
+        results = recommender_obj.get_recommendations(user_profile)
+        
+        return {
+            "result": "SUCCESS",
+            "user_id": user_id,
+            "recommendations": results
+        }
+    except Exception as e:
+        return {"result": "FAILURE", "message": str(e)}
