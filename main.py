@@ -288,11 +288,19 @@ def get_user_recommendation(user_id: int):
         if not recommended_names:
             return {"result": "SUCCESS", "user_id": user_id, "products": []}
 
-        # 4) 추천받은 상품명으로 DB에서 상세 정보 조회
+        # 4) 추천받은 상품명으로 DB에서 상세 정보 조회 (target_type 필터링 추가)
         format_strings = ','.join(['%s'] * len(recommended_names))
-        query = f"SELECT * FROM financial_product WHERE product_name IN ({format_strings}) LIMIT 3"
+        target_filter = 'CORPORATE' if is_corporate == 1 else 'INDIVIDUAL'
         
-        cursor.execute(query, tuple(recommended_names))
+        query = f"""
+            SELECT * FROM financial_product 
+            WHERE product_name IN ({format_strings}) 
+            AND (target_type = %s OR target_type = 'ALL')
+            AND is_active = 1
+            LIMIT 3
+        """
+        
+        cursor.execute(query, (*tuple(recommended_names), target_filter))
         products = cursor.fetchall()
 
         if not products:
@@ -311,7 +319,8 @@ def get_user_recommendation(user_id: int):
                 "minAmount": product['min_amount'],
                 "maxAmount": product['max_amount'],
                 "description": product['description'],
-                "isActive": bool(product['is_active'])
+                "isActive": bool(product['is_active']),
+                "targetType": product['target_type'] # 프론트엔드 연동용 컬럼 추가
             }
             formatted_products.append(formatted_product)
 
