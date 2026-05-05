@@ -64,10 +64,6 @@ class AutoTaskRequest(BaseModel):
     user_id: int
 
 
-def get_min_level(level_str: str) -> int:
-    return {'LEVEL_1': 1, 'LEVEL_2': 3, 'LEVEL_3': 5}.get(level_str, 1)
-
-
 def get_min_level_by_detail_type(task_detail_type: str) -> int:
     mapping = {
         # 빠른 업무 - lv.1
@@ -243,54 +239,17 @@ def auto_insert_task(req: AutoTaskRequest):
             available_count = max(cursor.fetchone()['cnt'], 1)
             expected_waiting_time = int((waiting_count * processing_time) / available_count)
 
-            # 6. 창구 직원 배정
-            # 동일 고객의 기존 대기 task가 있으면 가장 높은 레벨 직원에게 모아서 배정
-            member_id = None
-            cursor.execute(
-                "SELECT task_id, assigned_level FROM task WHERE user_id = %s AND status = 'WAITING'",
-                (req.user_id,)
-            )
-            waiting_tasks = cursor.fetchall()
-
-            if waiting_tasks:
-                max_level = min_level
-                task_ids = [t['task_id'] for t in waiting_tasks]
-                for t in waiting_tasks:
-                    lvl = get_min_level(t['assigned_level'])
-                    if lvl > max_level:
-                        max_level = lvl
-                cursor.execute(
-                    "SELECT id FROM member WHERE level >= %s AND status = 1 LIMIT 1",
-                    (max_level,)
-                )
-                member_row = cursor.fetchone()
-                if member_row:
-                    member_id = member_row['id']
-                    fmt = ','.join(['%s'] * len(task_ids))
-                    cursor.execute(
-                        f"UPDATE task SET member_id = %s, updated_at = NOW() WHERE task_id IN ({fmt})",
-                        [member_id] + task_ids
-                    )
-            else:
-                cursor.execute(
-                    "SELECT id FROM member WHERE level >= %s AND status = 1 LIMIT 1",
-                    (min_level,)
-                )
-                member_row = cursor.fetchone()
-                if member_row:
-                    member_id = member_row['id']
-
-            # 7. DB Insert
+            # 6. DB Insert
             insert_query = """
                 INSERT INTO task (
                     user_id, ticket_number, task_type, task_detail_type, assigned_level,
-                    expected_waiting_time, status, member_id, ranking, created_at, updated_at, is_ai
-                ) VALUES (%s, %s, %s, %s, %s, %s, 'WAITING', %s, %s, %s, %s, 1)
+                    expected_waiting_time, status, ranking, created_at, updated_at, is_ai
+                ) VALUES (%s, %s, %s, %s, %s, %s, 'WAITING', %s, %s, %s, 1)
             """
             now = datetime.now()
             cursor.execute(insert_query, (
                 req.user_id, ticket_number, task_type, task_detail_type, assigned_level,
-                expected_waiting_time, member_id, ranking, now, now
+                expected_waiting_time, ranking, now, now
             ))
             inserted_task_id = cursor.lastrowid
             conn.commit()
