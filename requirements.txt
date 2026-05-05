@@ -7,14 +7,9 @@ scikit-learn
 joblib
 mysql-connector-python
 requests
-langchain
-langchain-community
 langchain-core
+langchain-community
 faiss-cpu
-sentence-transformers
-
-
 
 # pip install -r requirements.txt
-# 추후 GCP 서버에 코드를 옮기고  위 명령어 하나만 입력하면 모든 라이브러리가 자동 설치
-
+# 추후 GCP 서버에 코드를 옮기고 위 명령어 하나만 입력하면 모든 라이브러리가 자동 설치

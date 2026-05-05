@@ -6,11 +6,9 @@ import mysql.connector
 from datetime import datetime
 import chatbot_service
 import recommender
-
-
 from recommender import ProductRecommender
 
-recommender = ProductRecommender('bank_data.csv')
+recommender_obj = ProductRecommender('bank_data_2.csv')
 
 app = FastAPI()
 
@@ -81,7 +79,7 @@ def auto_insert_task(req: AutoTaskRequest):
             age = 30
             
         user_type_str = str(user_data['user_type']).upper() if user_data['user_type'] else ''
-        is_corporate = 1 if user_type_str in ('CORPORATE', '기업', '법인', 'BUSINESS') else 0
+        is_corporate = 1 if user_type_str in ('CORPORATE', '기업', '법인', 'BUSINESS','corporate') else 0
         total_balance = int(user_data['total_balance'])
         has_active_loan = int(user_data['has_active_loan'])
         recent_tx_count = int(user_data['recent_tx_count'])
@@ -95,11 +93,11 @@ def auto_insert_task(req: AutoTaskRequest):
         }])
         
         # 모델 예측
-        # pred = 0  # model.predict 대신 일단 0으로 고정! , 원래는  pred = int(model.predict(input_df)[0])
         if model:
             pred = int(model.predict(input_df)[0])
         else:
             pred = 0 # 만약 AI 모델이 오류로 안 켜졌다면 기본값(빠른업무)으로 보냄
+            
         # 업무 매핑 로직
         if pred == 0:
             task_type = "빠른 업무"
@@ -225,7 +223,7 @@ def auto_insert_task(req: AutoTaskRequest):
         cursor.close()
         conn.close()
 
-# 2. RAG 기반 챗봇 상담 엔드포인트 (추가된 부분)
+# 2. RAG 기반 챗봇 상담 엔드포인트
 @app.post("/py/chat")
 def chat_bot(req: ChatRequest):
     try:
@@ -243,27 +241,66 @@ def chat_bot(req: ChatRequest):
         }
 
 
-
-
-recommender_obj = ProductRecommender('bank_data_2.csv')
-
 @app.get("/py/recommend/{user_id}")
 def get_user_recommendation(user_id: int):
-    try:
+    conn = get_db_connection()
+    if not conn:
+        return {"result": "FAILURE", "message": "DB 연결 실패"}
 
+    cursor = conn.cursor(dictionary=True)
+
+    try:
         if user_id < 0 or user_id >= len(recommender_obj.df):
             return {"result": "FAILURE", "message": "유저 인덱스 범위 초과"}
 
         user_row = recommender_obj.df.iloc[user_id]
         user_profile = user_row[recommender_obj.feature_cols].to_dict()
+        recommended_names = recommender_obj.get_recommendations(user_profile)
 
+        if not recommended_names:
+            return {"result": "SUCCESS", "user_id": user_id, "products": []}
 
-        results = recommender_obj.get_recommendations(user_profile)
+        format_strings = ','.join(['%s'] * len(recommended_names))
+        query = f"SELECT * FROM financial_product WHERE product_name IN ({format_strings}) LIMIT 3"
+        
+        cursor.execute(query, tuple(recommended_names))
+        products = cursor.fetchall()
+
+        if not products:
+            return {"result": "SUCCESS", "user_id": user_id, "products": []}
+
+        formatted_products = []
+        for product in products:
+            formatted_product = {
+                "productId": product['product_id'],
+                "productCategory": product['product_category'],
+                "productName": product['product_name'],
+                "baseInterestRate": float(product['base_interest_rate']) if product['base_interest_rate'] is not None else 0.0,
+                "maxInterestRate": float(product['max_interest_rate']) if product['max_interest_rate'] is not None else None,
+                "minDurationMonths": product['min_duration_months'],
+                "maxDurationMonths": product['max_duration_months'],
+                "minAmount": product['min_amount'],
+                "maxAmount": product['max_amount'],
+                "description": product['description'],
+                "isActive": bool(product['is_active'])
+            }
+            formatted_products.append(formatted_product)
+
+        sorted_products = sorted(
+            formatted_products, 
+            key=lambda x: recommended_names.index(x['productName']) if x['productName'] in recommended_names else 999
+        )
 
         return {
             "result": "SUCCESS",
             "user_id": user_id,
-            "recommendations": results
+            "products": sorted_products
         }
+
     except Exception as e:
+        print(f"Recommend Error: {e}")
         return {"result": "FAILURE", "message": str(e)}
+
+    finally:
+        cursor.close()
+        conn.close()
