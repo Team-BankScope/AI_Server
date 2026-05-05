@@ -6,13 +6,22 @@ import mysql.connector
 from datetime import datetime
 import chatbot_service  
 import recommender 
-
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from recommender import ProductRecommender
 
 recommender = ProductRecommender('bank_data.csv')
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],      
+    allow_credentials=True,
+    allow_methods=["*"],      
+    allow_headers=["*"],      
+)
+
 
 
 
