@@ -68,6 +68,42 @@ def get_min_level(level_str: str) -> int:
     return {'LEVEL_1': 1, 'LEVEL_2': 3, 'LEVEL_3': 5}.get(level_str, 1)
 
 
+def get_min_level_by_detail_type(task_detail_type: str) -> int:
+    mapping = {
+        # 빠른 업무 - lv.1
+        '입금':               1,
+        '출금':               1,
+        '카드수령':            1,
+        # 빠른 업무 - lv.2
+        '이체':               2,
+        '체크카드 발급':        2,
+        '통장 비밀번호 변경':   2,
+        '입출금 계좌개설':      2,
+        # 상담 업무 - lv.2
+        '적금':               2,
+        '신용카드 신청':        2,
+        # 상담 업무 - lv.3
+        '예금':               3,
+        '신용대출':            3,
+        '전세자금대출':         3,
+        # 상담 업무 - lv.4
+        '소상공인 대출':        4,
+        '연금신청':            4,
+        '보험상담':            4,
+        '펀드상담':            4,
+        '주택담보대출':         4,
+        # 기업·특수 - lv.3
+        '법인카드 발급':        3,
+        # 기업·특수 - lv.4
+        '법인계좌 개설':        4,
+        '기업대출':            4,
+        '연체관리':            4,
+        # 기업·특수 - lv.5
+        '부도관리':            5,
+    }
+    return mapping.get(task_detail_type, 1)
+
+
 def extract_user_features(cursor, user_id: int) -> dict:
     # recent_tx_count: account 를 통해 JOIN 해야 고객 본인의 거래 내역을 조회할 수 있음
     query = """
@@ -117,7 +153,7 @@ def determine_task_details(pred: int, features: dict) -> dict:
 
     if pred == 0:
         if total_balance == 0:
-            detail = "계좌 개설"
+            detail = "입출금 계좌개설"
         elif recent_tx_count > 10:
             detail = "이체"
         else:
@@ -129,11 +165,11 @@ def determine_task_details(pred: int, features: dict) -> dict:
 
     elif pred == 1:
         if has_active_loan == 1:
-            detail = "대출 상환"
+            detail = "신용대출"
         elif total_balance >= 50_000_000:
             detail = "예금"
         else:
-            detail = "금융상품가입"
+            detail = "적금"
         return {
             "task_type": "상담 업무", "assigned_level": "LEVEL_2",
             "processing_time": 10, "prefix": "B", "task_detail_type": detail,
@@ -169,6 +205,10 @@ def auto_insert_task(req: AutoTaskRequest):
             input_df = pd.DataFrame([features])[FEATURE_COLUMNS]
             pred = int(model.predict(input_df)[0])
 
+            # 기업 고객은 모델 예측과 무관하게 기업·특수(2)로 강제 배정
+            if features['is_corporate'] == 1:
+                pred = 2
+
             # 3. 업무 매핑
             details          = determine_task_details(pred, features)
             task_type        = details["task_type"]
@@ -176,7 +216,7 @@ def auto_insert_task(req: AutoTaskRequest):
             processing_time  = details["processing_time"]
             prefix           = details["prefix"]
             task_detail_type = details["task_detail_type"]
-            min_level        = get_min_level(assigned_level)
+            min_level        = get_min_level_by_detail_type(task_detail_type)
 
             # 4. 티켓 번호 생성 (FOR UPDATE 행 잠금 → 동시 요청 간 번호 중복 방지)
             cursor.execute(
