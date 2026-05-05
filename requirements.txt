@@ -7,3 +7,5 @@ scikit-learn==1.8.0
 joblib==1.5.3
 mysql-connector-python==9.6.0
 python-dotenv==1.2.2
+shap
+matplotlib

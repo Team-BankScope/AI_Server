@@ -1,9 +1,12 @@
+import platform
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.metrics import accuracy_score, classification_report
 import joblib
+import shap
+import matplotlib.pyplot as plt
 
 # main.py 의 FEATURE_COLUMNS 와 동일한 순서 유지 (어긋나면 추론 시 예측이 틀어짐)
 FEATURE_COLUMNS = ['age', 'is_corporate', 'total_balance', 'has_active_loan', 'recent_tx_count']
@@ -87,3 +90,49 @@ if accuracy >= 0.85:
     print("\n[OK] 목표 달성! 'bank_model.pkl' 모델 저장 완료!")
 else:
     print("\n[WARN] 정확도가 85% 미만이므로 모델을 저장하지 않습니다.")
+
+# ---------------------------------------------------------
+# [SHAP XAI] 특정 고객이 왜 해당 창구로 배정됐는지 per-instance 설명
+# ---------------------------------------------------------
+print("\n5. SHAP 분석 중... (수십 초 소요될 수 있습니다)")
+
+explainer = shap.TreeExplainer(model)
+shap_values = explainer.shap_values(X_test)
+
+# 새 버전 SHAP: shap_values shape = (n_samples, n_features, n_classes)
+# 축이 맞는지 확인 후 분기
+is_3d = isinstance(shap_values, np.ndarray) and shap_values.ndim == 3
+
+class_names = ['빠른업무', '상담업무', '기업특수']
+y_test_arr = np.array(y_test)
+y_pred_arr = np.array(y_pred)
+
+# SHAP waterfall 은 영문 레이블만 사용 → 기본 폰트 사용 (한글 폰트의 minus sign 미지원 문제 방지)
+plt.rcParams['font.family'] = 'DejaVu Sans'
+plt.rcParams['axes.unicode_minus'] = True
+
+for class_idx, class_name in enumerate(class_names):
+    correct = np.where((y_test_arr == class_idx) & (y_pred_arr == class_idx))[0]
+    if len(correct) == 0:
+        print(f"[WARN] {class_name} 정확 예측 샘플 없음, 건너뜀")
+        continue
+
+    idx = correct[0]
+    values = shap_values[idx, :, class_idx] if is_3d else shap_values[class_idx][idx]
+    base = explainer.expected_value[class_idx] if hasattr(explainer.expected_value, '__len__') else explainer.expected_value
+
+    shap.waterfall_plot(
+        shap.Explanation(
+            values=values,
+            base_values=base,
+            data=X_test.iloc[idx],
+            feature_names=FEATURE_COLUMNS
+        ),
+        show=False
+    )
+    profile = dict(X_test.iloc[idx])
+    plt.title(f'[{class_name}] Why? profile={profile}', fontsize=9)
+    plt.tight_layout()
+    plt.savefig(f'shap_explain_{class_idx}_{class_name}.png', dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"[OK] 'shap_explain_{class_idx}_{class_name}.png' 저장 완료!")
