@@ -4,8 +4,8 @@ from pydantic import BaseModel
 import pandas as pd
 import mysql.connector
 from datetime import datetime
-import chatbot_service  # 작성하신 chatbot_service.py 임포트
-import recommend_service
+import chatbot_service  
+import recommend
 
 app = FastAPI()
 
@@ -20,11 +20,7 @@ except Exception as e:
 DB_CONFIG = {
     'host': 'localhost',
     'user': 'root',
-<<<<<<< Updated upstream
-    'password': '0000',
-=======
     'password': 'test1234',
->>>>>>> Stashed changes
     'database': 'bank'
 }
 
@@ -228,7 +224,7 @@ def auto_insert_task(req: AutoTaskRequest):
         cursor.close()
         conn.close()
 
-# 2. RAG 기반 챗봇 상담 엔드포인트 (추가된 부분)
+# 2. RAG 기반 챗봇 상담 엔드포인트
 @app.post("/py/chat")
 def chat_bot(req: ChatRequest):
     try:
@@ -246,15 +242,95 @@ def chat_bot(req: ChatRequest):
         }
     
 
-# 3. 맞춤형 금융 상품 추천 엔드포인트 (추가된 부분)
-@app.post("/py/recommend")
-def recommend_product(req: RecommendRequest):
+# 3. 맞춤형 금융 상품 추천 엔드포인트 
+@app.get("/py/recommend")
+def get_user_recommendation(user_id: int):
+    conn = get_db_connection()
+    if not conn:
+        return {"result": "FAILURE", "message": "DB 연결 실패"}
+
+    cursor = conn.cursor(dictionary=True)
+
     try:
-        result = recommend_service.get_recommendation(req.user_id)
-        return result
+        # 1) 실제 DB에서 유저 정보 가져오기
+        query = """
+            SELECT 
+                u.age, u.user_type,
+                COALESCE((SELECT SUM(balance) FROM account WHERE user_id = u.id), 0) AS total_balance,
+                CASE WHEN EXISTS (SELECT 1 FROM loan WHERE user_id = u.id AND status = 'ACTIVE') THEN 1 ELSE 0 END AS has_active_loan,
+                (SELECT COUNT(*) FROM transaction_history WHERE user_id = u.id AND created_at >= DATE_SUB(NOW(), INTERVAL 1 MONTH)) AS recent_tx_count
+            FROM user u
+            WHERE u.id = %s
+        """
+        cursor.execute(query, (user_id,))
+        user_data = cursor.fetchone()
+
+        if not user_data:
+            return {"result": "FAILURE", "message": "유저 정보가 없습니다."}
+
+        # 2) recommend_service.py에 넣을 수 있게 데이터 형태 맞추기
+        age_str = str(user_data['age']).replace('대', '').replace('세', '').strip() if user_data['age'] else '30'
+        age = int(age_str)
+        user_type_str = str(user_data['user_type']).upper() if user_data['user_type'] else ''
+        is_corporate = 1 if user_type_str in ('CORPORATE', '기업', '법인', 'BUSINESS') else 0
+
+        input_df = pd.DataFrame([{
+            "age": age,
+            "is_corporate": is_corporate,
+            "total_balance": int(user_data['total_balance']),
+            "has_active_loan": int(user_data['has_active_loan']),
+            "recent_tx_count": int(user_data['recent_tx_count'])
+        }])
+
+        # 3) recommend_service.py의 짧은 추천 함수 실행
+        recommended_names = recommend.get_recommendation(input_df)
+
+        if not recommended_names:
+            return {"result": "SUCCESS", "user_id": user_id, "products": []}
+
+        # 4) 추천받은 상품명으로 DB에서 상세 정보 조회
+        format_strings = ','.join(['%s'] * len(recommended_names))
+        query = f"SELECT * FROM financial_product WHERE product_name IN ({format_strings}) LIMIT 3"
+        
+        cursor.execute(query, tuple(recommended_names))
+        products = cursor.fetchall()
+
+        if not products:
+            return {"result": "SUCCESS", "user_id": user_id, "products": []}
+
+        formatted_products = []
+        for product in products:
+            formatted_product = {
+                "productId": product['product_id'],
+                "productCategory": product['product_category'],
+                "productName": product['product_name'],
+                "baseInterestRate": float(product['base_interest_rate']) if product['base_interest_rate'] is not None else 0.0,
+                "maxInterestRate": float(product['max_interest_rate']) if product['max_interest_rate'] is not None else None,
+                "minDurationMonths": product['min_duration_months'],
+                "maxDurationMonths": product['max_duration_months'],
+                "minAmount": product['min_amount'],
+                "maxAmount": product['max_amount'],
+                "description": product['description'],
+                "isActive": bool(product['is_active'])
+            }
+            formatted_products.append(formatted_product)
+
+        # 추천 우선순위에 맞춰서 정렬
+        sorted_products = sorted(
+            formatted_products, 
+            key=lambda x: recommended_names.index(x['productName']) if x['productName'] in recommended_names else 999
+        )
+
+        return {
+            "result": "SUCCESS",
+            "user_id": user_id,
+            "products": sorted_products
+        }
+
     except Exception as e:
         print(f"Recommend Error: {e}")
-        return {
-            "result": "FAILURE",
-            "message": "추천 서비스를 현재 이용할 수 없습니다."
-        }
+        return {"result": "FAILURE", "message": str(e)}
+
+    finally:
+        cursor.close()
+        conn.close()
