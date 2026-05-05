@@ -239,21 +239,60 @@ recommender_obj = ProductRecommender('bank_data_2.csv')
 
 @app.get("/py/recommend/{user_id}")
 def get_user_recommendation(user_id: int):
+    conn = get_db_connection()  
+    if not conn:
+        return {"result": "FAILURE", "message": "DB 연결 실패"}
+    
+    cursor = conn.cursor(dictionary=True) 
+    
     try:
-       
+     
         if user_id < 0 or user_id >= len(recommender_obj.df):
             return {"result": "FAILURE", "message": "유저 인덱스 범위 초과"}
         
         user_row = recommender_obj.df.iloc[user_id]
         user_profile = user_row[recommender_obj.feature_cols].to_dict()
         
+       
+        recommended_names = recommender_obj.get_recommendations(user_profile)
         
-        results = recommender_obj.get_recommendations(user_profile)
-        
+
+
+        products_list = []
+        for name in recommended_names:
+          
+            query = "SELECT * FROM financial_product WHERE product_name = %s"
+            cursor.execute(query, (name,))
+            product_data = cursor.fetchone()
+            
+            if product_data:
+                
+                mapped_product = {
+                    "productId": product_data['product_id'],
+                    "productCategory": product_data['product_category'],
+                    "targetType": product_data['target_type'],  
+                    "productName": product_data['product_name'],
+                    "baseInterestRate": float(product_data['base_interest_rate']),
+                    "maxInterestRate": float(product_data['max_interest_rate']),
+                    "minDurationMonths": product_data['min_duration_months'],
+                    "maxDurationMonths": product_data['max_duration_months'],
+                    "minAmount": int(product_data['min_amount']),
+                    "maxAmount": int(product_data['max_amount']),
+                    "description": product_data['description'],
+                    "isActive": bool(product_data['is_active'])
+                }
+                products_list.append(mapped_product)
+
         return {
             "result": "SUCCESS",
             "user_id": user_id,
-            "recommendations": results
+            "products": products_list
         }
+        
+        
     except Exception as e:
+        print(f"Recommend Error: {e}")
         return {"result": "FAILURE", "message": str(e)}
+    finally:
+        cursor.close()
+        conn.close()
