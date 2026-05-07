@@ -1,23 +1,18 @@
 -- BankScope financial_product 초기 데이터 삽입
 -- 실행 전 확인: USE bank;
--- product_category ENUM: CHECKING, DEPOSIT(예금), SAVINGS(적금), LOAN(대출), FUND(펀드)
+-- product_category ENUM: CHECKING(입출금), DEPOSIT(예금), SAVINGS(적금), LOAN(대출)
 -- target_type: INDIVIDUAL(개인), CORPORATE(법인)
+-- ※ 이미 1~13번 행이 들어가 있다면 아래 3개 행만 별도 실행할 것
 
--- 1. FUND enum 추가 (없으면 실행)
-ALTER TABLE `bank`.`financial_product`
-    MODIFY COLUMN `product_category` ENUM('CHECKING','DEPOSIT','SAVINGS','LOAN','FUND') NOT NULL;
-
--- 2. 이전 실행으로 잘못 들어간 행 정리 (product_category가 빈 값인 행 삭제)
-DELETE FROM `bank`.`financial_product` WHERE product_category = '';
-
+-- ─────────────────────────────────────────────────────────────────
+-- 전체 삽입 (처음 실행하는 경우)
+-- ─────────────────────────────────────────────────────────────────
 INSERT INTO `bank`.`financial_product`
     (product_category, target_type, product_name, base_interest_rate, max_interest_rate,
      min_duration_months, max_duration_months, min_amount, max_amount, description, is_active)
 VALUES
 
--- ─────────────────────────────────────────
 -- 예금 (DEPOSIT)
--- ─────────────────────────────────────────
 ('DEPOSIT', 'INDIVIDUAL', 'BankScope 정기예금',
  3.20, 4.00, 1, 36, 1000000, 500000000,
  '안정적인 금리를 제공하는 개인 정기예금 상품입니다. 가입 기간이 길수록 우대금리가 적용됩니다.', 1),
@@ -30,9 +25,7 @@ VALUES
  3.00, 3.80, 1, 24, 10000000, 2000000000,
  '법인 및 사업자를 위한 고액 정기예금 상품입니다. 거래 실적에 따라 우대금리가 적용됩니다.', 1),
 
--- ─────────────────────────────────────────
 -- 적금 (SAVINGS)
--- ─────────────────────────────────────────
 ('SAVINGS', 'INDIVIDUAL', 'BankScope 자유적금',
  3.80, 5.00, 6, 36, 10000, 3000000,
  '매월 자유롭게 납입할 수 있는 적금 상품입니다. 급여이체 및 카드 실적에 따라 최고 5.00% 금리를 제공합니다.', 1),
@@ -49,9 +42,7 @@ VALUES
  3.20, 4.00, 12, 60, 100000, 5000000,
  '소상공인 및 중소기업을 위한 정기적금입니다. 세금 우대 혜택이 적용됩니다.', 1),
 
--- ─────────────────────────────────────────
 -- 대출 (LOAN)
--- ─────────────────────────────────────────
 ('LOAN', 'INDIVIDUAL', '신용대출',
  5.50, 15.00, 1, 60, 1000000, 50000000,
  '신용등급에 따라 최대 5천만 원까지 대출 가능한 개인 신용대출 상품입니다. 별도의 담보 없이 빠르게 신청하실 수 있습니다.', 1),
@@ -76,17 +67,38 @@ VALUES
  4.50, 9.00, 12, 120, 10000000, 3000000000,
  '중소·중견기업의 운영 및 시설 투자를 위한 기업금융 대출 상품입니다. 최대 30억 원까지 지원합니다.', 1),
 
--- ─────────────────────────────────────────
--- 펀드 (FUND)
--- ─────────────────────────────────────────
-('FUND', 'INDIVIDUAL', 'BankScope 안전성장펀드',
+-- 펀드성 상품 (SAVINGS로 분류 - 장기 적립 성격)
+('SAVINGS', 'INDIVIDUAL', 'BankScope 안전성장펀드',
  4.00, 12.00, 6, 36, 1000000, NULL,
- '채권형과 주식형을 혼합한 중위험 중수익 펀드 상품입니다. 전문 운용역이 분산 투자하여 안정적 수익을 추구합니다.', 1),
+ '채권형과 주식형을 혼합한 중위험 중수익 상품입니다. 전문 운용역이 분산 투자하여 안정적 수익을 추구합니다.', 1),
 
-('FUND', 'INDIVIDUAL', 'BankScope 퇴직연금펀드',
+('SAVINGS', 'INDIVIDUAL', 'BankScope 퇴직연금펀드',
  3.50, 10.00, 12, NULL, 500000, NULL,
- '노후 대비를 위한 퇴직연금 전용 펀드입니다. 세액공제 혜택과 함께 장기 복리 수익을 기대할 수 있습니다.', 1),
+ '노후 대비를 위한 퇴직연금 전용 상품입니다. 세액공제 혜택과 함께 장기 복리 수익을 기대할 수 있습니다.', 1),
 
-('FUND', 'CORPORATE', 'BankScope 법인 MMF',
+-- MMF (CHECKING으로 분류 - 즉시 환매 단기 운용)
+('CHECKING', 'CORPORATE', 'BankScope 법인 MMF',
  2.80, 4.00, 1, NULL, 10000000, NULL,
- '법인 여유 자금을 단기 운용할 수 있는 머니마켓펀드입니다. 매일 수익이 정산되며 즉시 환매가 가능합니다.', 1);
+ '법인 여유 자금을 단기 운용할 수 있는 머니마켓 상품입니다. 매일 수익이 정산되며 즉시 환매가 가능합니다.', 1);
+
+
+-- ─────────────────────────────────────────────────────────────────
+-- 이전 실행으로 1~13번 행이 이미 들어간 경우: 아래 3개만 실행
+-- ─────────────────────────────────────────────────────────────────
+/*
+INSERT INTO `bank`.`financial_product`
+    (product_category, target_type, product_name, base_interest_rate, max_interest_rate,
+     min_duration_months, max_duration_months, min_amount, max_amount, description, is_active)
+VALUES
+('SAVINGS', 'INDIVIDUAL', 'BankScope 안전성장펀드',
+ 4.00, 12.00, 6, 36, 1000000, NULL,
+ '채권형과 주식형을 혼합한 중위험 중수익 상품입니다. 전문 운용역이 분산 투자하여 안정적 수익을 추구합니다.', 1),
+
+('SAVINGS', 'INDIVIDUAL', 'BankScope 퇴직연금펀드',
+ 3.50, 10.00, 12, NULL, 500000, NULL,
+ '노후 대비를 위한 퇴직연금 전용 상품입니다. 세액공제 혜택과 함께 장기 복리 수익을 기대할 수 있습니다.', 1),
+
+('CHECKING', 'CORPORATE', 'BankScope 법인 MMF',
+ 2.80, 4.00, 1, NULL, 10000000, NULL,
+ '법인 여유 자금을 단기 운용할 수 있는 머니마켓 상품입니다. 매일 수익이 정산되며 즉시 환매가 가능합니다.', 1);
+*/
