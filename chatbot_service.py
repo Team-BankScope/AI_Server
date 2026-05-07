@@ -1,6 +1,7 @@
 import os
 import requests
 import mysql.connector
+import google.generativeai as genai
 from datetime import datetime
 from dotenv import load_dotenv
 from langchain_community.vectorstores import FAISS
@@ -9,6 +10,7 @@ from langchain_core.embeddings import Embeddings
 load_dotenv()
 
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
+genai.configure(api_key=GEMINI_API_KEY)
 
 DB_CONFIG = {
     'host':     os.getenv('DB_HOST', 'localhost'),
@@ -20,31 +22,24 @@ DB_CONFIG = {
 
 class RAGEmbedder(Embeddings):
     def _embed(self, text: str, task_type: str) -> list[float]:
-        url = (
-            f"https://generativelanguage.googleapis.com/v1/models/"
-            f"text-embedding-004:embedContent?key={GEMINI_API_KEY}"
+        result = genai.embed_content(
+            model="models/text-embedding-004",
+            content=text,
+            task_type=task_type,
         )
-        payload = {
-            "model": "models/text-embedding-004",
-            "content": {"parts": [{"text": text}]},
-            "taskType": task_type,
-        }
-        res = requests.post(url, json=payload, timeout=20)
-        if res.status_code == 200:
-            return res.json()['embedding']['values']
-        raise RuntimeError(f"Gemini 임베딩 실패 [{res.status_code}]: {res.text[:200]}")
+        return result['embedding']
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         result = []
         for i, text in enumerate(texts):
-            vec = self._embed(text, "RETRIEVAL_DOCUMENT")
+            vec = self._embed(text, "retrieval_document")
             result.append(vec)
             if (i + 1) % 5 == 0:
                 print(f"  임베딩 진행: {i + 1}/{len(texts)}")
         return result
 
     def embed_query(self, text: str) -> list[float]:
-        return self._embed(text, "RETRIEVAL_QUERY")
+        return self._embed(text, "retrieval_query")
 
 
 def load_site_guide() -> list[str]:
@@ -87,7 +82,7 @@ def build_vector_db():
 
     guide_texts = load_site_guide()
     all_texts = product_texts + guide_texts
-    _all_texts = all_texts  # 키워드 폴백용으로 항상 저장
+    _all_texts = all_texts
 
     if not all_texts:
         print("경고: 임베딩할 데이터가 없습니다.")
