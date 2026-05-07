@@ -82,10 +82,7 @@ VALUES
  '법인 여유 자금을 단기 운용할 수 있는 머니마켓 상품입니다. 매일 수익이 정산되며 즉시 환매가 가능합니다.', 1);
 
 
--- ─────────────────────────────────────────────────────────────────
--- 이전 실행으로 1~13번 행이 이미 들어간 경우: 아래 3개만 실행
--- ─────────────────────────────────────────────────────────────────
-/*
+
 INSERT INTO `bank`.`financial_product`
     (product_category, target_type, product_name, base_interest_rate, max_interest_rate,
      min_duration_months, max_duration_months, min_amount, max_amount, description, is_active)
@@ -101,4 +98,3 @@ VALUES
 ('CHECKING', 'CORPORATE', 'BankScope 법인 MMF',
  2.80, 4.00, 1, NULL, 10000000, NULL,
  '법인 여유 자금을 단기 운용할 수 있는 머니마켓 상품입니다. 매일 수익이 정산되며 즉시 환매가 가능합니다.', 1);
-*/
