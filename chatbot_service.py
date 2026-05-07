@@ -6,7 +6,6 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.embeddings import Embeddings
 
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
-INDEX_PATH = "faiss_bank_index"
 
 DB_CONFIG = {
     'host':     os.getenv('DB_HOST', 'localhost'),
@@ -45,15 +44,6 @@ class RAGEmbedder(Embeddings):
 
 
 def build_vector_db():
-    # 저장된 인덱스가 있으면 바로 로드 (서버 재시작 시 빠름)
-    if os.path.exists(INDEX_PATH):
-        try:
-            db = FAISS.load_local(INDEX_PATH, RAGEmbedder(), allow_dangerous_deserialization=True)
-            print(f"[알림] 저장된 벡터 DB를 로드했습니다. ({INDEX_PATH})")
-            return db
-        except Exception as e:
-            print(f"[WARN] 저장된 벡터 DB 로드 실패, 재구축합니다: {e}")
-
     print("[알림] MySQL 데이터를 기반으로 벡터 DB를 구축합니다...")
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
@@ -77,8 +67,7 @@ def build_vector_db():
         ]
 
         db = FAISS.from_texts(product_texts, RAGEmbedder())
-        db.save_local(INDEX_PATH)
-        print(f"성공: {len(products)}개의 상품이 벡터 DB에 적재 및 저장되었습니다. ({INDEX_PATH})")
+        print(f"성공: {len(products)}개의 상품이 벡터 DB에 적재되었습니다.")
         return db
 
     except Exception as e:

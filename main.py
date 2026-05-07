@@ -31,7 +31,7 @@ except FileNotFoundError:
     print("[WARN] 모델 파일(bank_model.pkl)을 찾을 수 없습니다. 먼저 train_model.py를 실행하세요.")
     model = None
 
-# train_model.py 와 동일한 순서 유지 (어긋나면 예측이 틀어짐)
+# RF.py 와 동일한 순서 유지 (어긋나면 예측이 틀어짐)
 FEATURE_COLUMNS = ['age', 'is_corporate', 'total_balance', 'has_active_loan', 'recent_tx_count']
 
 POOL_CONFIG = {
@@ -52,13 +52,6 @@ except Error as e:
     print(f"[WARN] DB 연결 풀 초기화 실패: {e}")
     connection_pool = None
 
-try:
-    recommender_obj = ProductRecommender('bank_data_2.csv')
-except Exception as e:
-    print(f"[WARN] 추천 모델 초기화 실패: {e}")
-    recommender_obj = None
-
-
 @contextlib.contextmanager
 def get_db_cursor():
     if connection_pool is None:
@@ -74,6 +67,56 @@ def get_db_cursor():
     finally:
         cursor.close()
         conn.close()
+
+
+try:
+    base_df = pd.read_csv('bank_data_2.csv')
+    try:
+        with get_db_cursor() as (conn, cursor):
+            cursor.execute("""
+                SELECT
+                    u.age,
+                    u.user_type,
+                    COALESCE((SELECT SUM(balance) FROM account WHERE user_id = u.id), 0) AS total_balance,
+                    CASE WHEN EXISTS (SELECT 1 FROM loan WHERE user_id = u.id AND status = 'ACTIVE')
+                    THEN 1 ELSE 0 END AS has_active_loan,
+                    (
+                        SELECT COUNT(*) FROM transaction_history th
+                        JOIN account a ON th.account_id = a.account_id
+                        WHERE a.user_id = u.id
+                          AND th.created_at >= DATE_SUB(NOW(), INTERVAL 1 MONTH)
+                    ) AS recent_tx_count,
+                    fp.product_name AS target_product
+                FROM user u
+                JOIN product_subscription ps ON u.id = ps.user_id AND ps.status = 'ACTIVE'
+                JOIN financial_product fp ON ps.product_id = fp.product_id
+            """)
+            real_rows = cursor.fetchall()
+
+        if real_rows:
+            real_df = pd.DataFrame(real_rows)
+            real_df['is_corporate'] = real_df['user_type'].str.upper().isin(
+                ['CORPORATE', '기업', '법인', 'BUSINESS']
+            ).astype(int)
+            real_df = real_df.drop(columns=['user_type'])
+            real_df['age'] = (
+                real_df['age'].astype(str)
+                .str.replace('대', '').str.replace('세', '').str.strip()
+            )
+            real_df['age'] = pd.to_numeric(real_df['age'], errors='coerce').fillna(30).astype(int)
+            merged_df = pd.concat([base_df, real_df], ignore_index=True)
+            print(f"[추천] 기본 {len(base_df)}건 + 실제 구독 {len(real_rows)}건 병합 완료")
+        else:
+            merged_df = base_df
+            print(f"[추천] 실제 구독 데이터 없음, 기본 데이터 {len(base_df)}건 사용")
+    except Exception as e:
+        merged_df = base_df
+        print(f"[WARN] DB 구독 데이터 로드 실패, 기본 데이터만 사용: {e}")
+
+    recommender_obj = ProductRecommender(merged_df)
+except Exception as e:
+    print(f"[WARN] 추천 모델 초기화 실패: {e}")
+    recommender_obj = None
 
 
 class AutoTaskRequest(BaseModel):
