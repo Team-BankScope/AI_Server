@@ -3,8 +3,6 @@ import requests
 import mysql.connector
 from datetime import datetime
 from dotenv import load_dotenv
-from langchain_community.vectorstores import FAISS
-from langchain_community.embeddings import HuggingFaceEmbeddings
 
 load_dotenv()
 
@@ -17,25 +15,16 @@ DB_CONFIG = {
     'database': os.getenv('DB_NAME', 'bank'),
 }
 
-_embedder = HuggingFaceEmbeddings(model_name="paraphrase-multilingual-MiniLM-L12-v2")
-
-
-def load_site_guide() -> list[str]:
+def _load_site_guide() -> str:
     guide_path = os.path.join(os.path.dirname(__file__), 'site_guide.txt')
     try:
         with open(guide_path, encoding='utf-8') as f:
-            content = f.read()
-        chunks = [c.strip() for c in content.split('\n\n') if c.strip()]
-        print(f"[알림] 사이트 가이드 {len(chunks)}개 문단 로드 완료")
-        return chunks
+            return f.read()
     except Exception as e:
         print(f"[WARN] 사이트 가이드 로드 실패: {e}")
-        return []
+        return ""
 
-
-def build_vector_db():
-    global _all_texts
-    print("[알림] RAG 벡터 DB를 구축합니다...")
+def _load_products() -> str:
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
@@ -46,59 +35,29 @@ def build_vector_db():
         products = cursor.fetchall()
         cursor.close()
         conn.close()
-
-        product_texts = [
-            f"상품명: {p['product_name']}, 카테고리: {p['product_category']}, "
-            f"대상: {'법인' if p['target_type'] == 'CORPORATE' else '개인'}, "
-            f"기본금리: {p['base_interest_rate']}%, 최고금리: {p['max_interest_rate']}%, "
-            f"설명: {p['description']}"
+        lines = [
+            f"- {p['product_name']} ({p['product_category']}, "
+            f"{'법인' if p['target_type'] == 'CORPORATE' else '개인'}): "
+            f"기본금리 {p['base_interest_rate']}%, 최고금리 {p['max_interest_rate']}%, "
+            f"{p['description']}"
             for p in products
         ]
+        return "\n".join(lines)
     except Exception as e:
         print(f"[WARN] 상품 로드 실패: {e}")
-        product_texts = []
+        return ""
 
-    guide_texts = load_site_guide()
-    all_texts = product_texts + guide_texts
-    _all_texts = all_texts
-
-    if not all_texts:
-        print("경고: 임베딩할 데이터가 없습니다.")
-        return None
-
-    try:
-        db = FAISS.from_texts(all_texts, _embedder)
-        print(f"성공: 상품 {len(product_texts)}개 + 가이드 {len(guide_texts)}개 RAG 벡터 DB 구축 완료")
-        return db
-    except Exception as e:
-        print(f"[WARN] 벡터 DB 구축 실패, 키워드 검색으로 대체합니다: {e}")
-        return None
-
-
-# 벡터 DB 구축 실패 시 키워드 검색 폴백용
-_all_texts: list[str] = []
-
-vector_db = build_vector_db()
-
-
-def _keyword_search(query: str, k: int = 6) -> list[str]:
-    scores = [(sum(1 for w in query.split() if w in t), t) for t in _all_texts]
-    return [t for _, t in sorted(scores, reverse=True)[:k]]
+_SITE_GUIDE = _load_site_guide()
+print("[알림] 챗봇 사이트 가이드 로드 완료")
 
 
 def get_chat_response(user_id: int, user_message: str) -> dict:
     try:
-        if vector_db is not None:
-            docs = vector_db.similarity_search(user_message, k=6)
-            context = "\n".join([doc.page_content for doc in docs])
-        elif _all_texts:
-            context = "\n".join(_keyword_search(user_message))
-        else:
-            return {
-                "sender": "bot",
-                "content": "서비스 초기화 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            }
+        products_text = _load_products()
+
+        context = f"[사이트 이용 가이드]\n{_SITE_GUIDE}"
+        if products_text:
+            context += f"\n\n[금융 상품 목록]\n{products_text}"
 
         url = (
             f"https://generativelanguage.googleapis.com/v1beta/models/"
@@ -108,14 +67,14 @@ def get_chat_response(user_id: int, user_message: str) -> dict:
             "당신은 BankScope 은행 AI 상담원입니다. "
             "아래 참조 데이터를 바탕으로 고객 질문에 친절하고 정확하게 답변하세요. "
             "참조 데이터에 없는 내용은 '직접 방문 또는 고객센터 문의'를 안내하세요.\n\n"
-            f"[참조 데이터]\n{context}\n\n"
+            f"{context}\n\n"
             f"[고객 질문]\n{user_message}"
         )
 
         response = requests.post(
             url,
             json={"contents": [{"parts": [{"text": prompt}]}]},
-            timeout=15
+            timeout=30
         )
         result = response.json()
 
