@@ -2,11 +2,8 @@
 -- 실행 전 확인: USE bank;
 -- product_category ENUM: CHECKING(입출금), DEPOSIT(예금), SAVINGS(적금), LOAN(대출)
 -- target_type: INDIVIDUAL(개인), CORPORATE(법인)
--- ※ 이미 1~13번 행이 들어가 있다면 아래 3개 행만 별도 실행할 것
 
--- ─────────────────────────────────────────────────────────────────
--- 전체 삽입 (처음 실행하는 경우)
--- ─────────────────────────────────────────────────────────────────
+
 INSERT INTO `bank`.`financial_product`
     (product_category, target_type, product_name, base_interest_rate, max_interest_rate,
      min_duration_months, max_duration_months, min_amount, max_amount, description, is_active)
@@ -77,24 +74,6 @@ VALUES
  '노후 대비를 위한 퇴직연금 전용 상품입니다. 세액공제 혜택과 함께 장기 복리 수익을 기대할 수 있습니다.', 1),
 
 -- MMF (CHECKING으로 분류 - 즉시 환매 단기 운용)
-('CHECKING', 'CORPORATE', 'BankScope 법인 MMF',
- 2.80, 4.00, 1, NULL, 10000000, NULL,
- '법인 여유 자금을 단기 운용할 수 있는 머니마켓 상품입니다. 매일 수익이 정산되며 즉시 환매가 가능합니다.', 1);
-
-
-
-INSERT INTO `bank`.`financial_product`
-    (product_category, target_type, product_name, base_interest_rate, max_interest_rate,
-     min_duration_months, max_duration_months, min_amount, max_amount, description, is_active)
-VALUES
-('SAVINGS', 'INDIVIDUAL', 'BankScope 안전성장펀드',
- 4.00, 12.00, 6, 36, 1000000, NULL,
- '채권형과 주식형을 혼합한 중위험 중수익 상품입니다. 전문 운용역이 분산 투자하여 안정적 수익을 추구합니다.', 1),
-
-('SAVINGS', 'INDIVIDUAL', 'BankScope 퇴직연금펀드',
- 3.50, 10.00, 12, NULL, 500000, NULL,
- '노후 대비를 위한 퇴직연금 전용 상품입니다. 세액공제 혜택과 함께 장기 복리 수익을 기대할 수 있습니다.', 1),
-
 ('CHECKING', 'CORPORATE', 'BankScope 법인 MMF',
  2.80, 4.00, 1, NULL, 10000000, NULL,
  '법인 여유 자금을 단기 운용할 수 있는 머니마켓 상품입니다. 매일 수익이 정산되며 즉시 환매가 가능합니다.', 1);
