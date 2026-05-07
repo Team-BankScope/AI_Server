@@ -3,6 +3,8 @@ import requests
 import mysql.connector
 from datetime import datetime
 from dotenv import load_dotenv
+from langchain_community.vectorstores import FAISS
+from langchain_core.embeddings import Embeddings
 
 load_dotenv()
 
@@ -15,8 +17,34 @@ DB_CONFIG = {
     'database': os.getenv('DB_NAME', 'bank'),
 }
 
-# 전체 지식 베이스 (상품 + 사이트 가이드)
-knowledge_base: list[str] = []
+
+class RAGEmbedder(Embeddings):
+    def _embed(self, text: str, task_type: str) -> list[float]:
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"text-embedding-004:embedContent?key={GEMINI_API_KEY}"
+        )
+        payload = {
+            "model": "models/text-embedding-004",
+            "content": {"parts": [{"text": text}]},
+            "taskType": task_type,
+        }
+        res = requests.post(url, json=payload, timeout=20)
+        if res.status_code == 200:
+            return res.json()['embedding']['values']
+        raise RuntimeError(f"Gemini 임베딩 실패 [{res.status_code}]: {res.text[:200]}")
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        result = []
+        for i, text in enumerate(texts):
+            vec = self._embed(text, "RETRIEVAL_DOCUMENT")
+            result.append(vec)
+            if (i + 1) % 5 == 0:
+                print(f"  임베딩 진행: {i + 1}/{len(texts)}")
+        return result
+
+    def embed_query(self, text: str) -> list[float]:
+        return self._embed(text, "RETRIEVAL_QUERY")
 
 
 def load_site_guide() -> list[str]:
@@ -32,9 +60,8 @@ def load_site_guide() -> list[str]:
         return []
 
 
-def build_knowledge_base():
-    global knowledge_base
-    print("[알림] 지식 베이스를 구축합니다...")
+def build_vector_db():
+    print("[알림] RAG 벡터 DB를 구축합니다... (Gemini 임베딩 API 호출 중)")
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
@@ -58,36 +85,45 @@ def build_knowledge_base():
         product_texts = []
 
     guide_texts = load_site_guide()
-    knowledge_base = product_texts + guide_texts
-    print(f"성공: 상품 {len(product_texts)}개 + 가이드 {len(guide_texts)}개 지식 베이스 구축 완료")
+    all_texts = product_texts + guide_texts
+
+    if not all_texts:
+        print("경고: 임베딩할 데이터가 없습니다.")
+        return None
+
+    try:
+        db = FAISS.from_texts(all_texts, RAGEmbedder())
+        print(f"성공: 상품 {len(product_texts)}개 + 가이드 {len(guide_texts)}개 RAG 벡터 DB 구축 완료")
+        return db
+    except Exception as e:
+        print(f"[WARN] 벡터 DB 구축 실패, 키워드 검색으로 대체합니다: {e}")
+        return None
 
 
-def keyword_search(query: str, k: int = 6) -> list[str]:
-    """키워드 기반 관련 문서 검색 (임베딩 API 불필요)"""
-    query_words = set(query.replace('?', '').replace('요', '').split())
-    scores = []
-    for text in knowledge_base:
-        score = sum(1 for word in query_words if word in text)
-        scores.append((score, text))
-    scores.sort(key=lambda x: x[0], reverse=True)
-    # 점수 0인 것도 일부 포함 (가이드 전체 맥락 제공)
-    return [text for _, text in scores[:k]]
+# 벡터 DB 구축 실패 시 키워드 검색 폴백용
+_all_texts: list[str] = []
+
+vector_db = build_vector_db()
 
 
-build_knowledge_base()
+def _keyword_search(query: str, k: int = 6) -> list[str]:
+    scores = [(sum(1 for w in query.split() if w in t), t) for t in _all_texts]
+    return [t for _, t in sorted(scores, reverse=True)[:k]]
 
 
 def get_chat_response(user_id: int, user_message: str) -> dict:
-    if not knowledge_base:
-        return {
-            "sender": "bot",
-            "content": "데이터베이스 연결 오류로 상담이 불가합니다.",
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
-
     try:
-        context_docs = keyword_search(user_message, k=6)
-        context = "\n".join(context_docs)
+        if vector_db is not None:
+            docs = vector_db.similarity_search(user_message, k=6)
+            context = "\n".join([doc.page_content for doc in docs])
+        elif _all_texts:
+            context = "\n".join(_keyword_search(user_message))
+        else:
+            return {
+                "sender": "bot",
+                "content": "데이터베이스 연결 오류로 상담이 불가합니다.",
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
 
         url = (
             f"https://generativelanguage.googleapis.com/v1beta/models/"
