@@ -61,6 +61,7 @@ def load_site_guide() -> list[str]:
 
 
 def build_vector_db():
+    global _all_texts
     print("[알림] RAG 벡터 DB를 구축합니다... (Gemini 임베딩 API 호출 중)")
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
@@ -86,6 +87,7 @@ def build_vector_db():
 
     guide_texts = load_site_guide()
     all_texts = product_texts + guide_texts
+    _all_texts = all_texts  # 키워드 폴백용으로 항상 저장
 
     if not all_texts:
         print("경고: 임베딩할 데이터가 없습니다.")
@@ -121,7 +123,7 @@ def get_chat_response(user_id: int, user_message: str) -> dict:
         else:
             return {
                 "sender": "bot",
-                "content": "데이터베이스 연결 오류로 상담이 불가합니다.",
+                "content": "서비스 초기화 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
 
