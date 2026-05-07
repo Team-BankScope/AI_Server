@@ -46,8 +46,22 @@ class RAGEmbedder(Embeddings):
         return self.embed_documents([text])[0]
 
 
+def load_site_guide() -> list[str]:
+    guide_path = os.path.join(os.path.dirname(__file__), 'site_guide.txt')
+    try:
+        with open(guide_path, encoding='utf-8') as f:
+            content = f.read()
+        # 빈 줄 기준으로 문단 분리
+        chunks = [c.strip() for c in content.split('\n\n') if c.strip()]
+        print(f"[알림] 사이트 가이드 {len(chunks)}개 문단 로드 완료")
+        return chunks
+    except Exception as e:
+        print(f"[WARN] 사이트 가이드 로드 실패: {e}")
+        return []
+
+
 def build_vector_db():
-    print("[알림] MySQL 데이터를 기반으로 벡터 DB를 구축합니다...")
+    print("[알림] 벡터 DB를 구축합니다...")
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
@@ -59,18 +73,21 @@ def build_vector_db():
         cursor.close()
         conn.close()
 
-        if not products:
-            print("경고: DB에 데이터가 없습니다.")
-            return None
-
         product_texts = [
             f"상품명: {p['product_name']}, 카테고리: {p['product_category']}, "
             f"금리: {p['base_interest_rate']}%, 설명: {p['description']}"
             for p in products
         ]
 
-        db = FAISS.from_texts(product_texts, RAGEmbedder())
-        print(f"성공: {len(products)}개의 상품이 벡터 DB에 적재되었습니다.")
+        guide_texts = load_site_guide()
+        all_texts = product_texts + guide_texts
+
+        if not all_texts:
+            print("경고: 임베딩할 데이터가 없습니다.")
+            return None
+
+        db = FAISS.from_texts(all_texts, RAGEmbedder())
+        print(f"성공: 상품 {len(product_texts)}개 + 가이드 {len(guide_texts)}개 벡터 DB 구축 완료")
         return db
 
     except Exception as e:
