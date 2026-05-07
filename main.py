@@ -1,12 +1,11 @@
 import joblib
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from pydantic import BaseModel
 import pandas as pd
 import mysql.connector
 from datetime import datetime
 import chatbot_service  
 import recommender 
-from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from recommender import ProductRecommender
@@ -225,22 +224,31 @@ def auto_insert_task(req: AutoTaskRequest):
         conn.close()
 
 
+
+
+class ChatRequest(BaseModel):
+    user_id: int
+    message: str
+
 @app.post("/py/chat")
-def chat_bot(req: ChatRequest):
+async def chat_bot(req: ChatRequest):
     try:
+        # 가이드 준수: user_id를 넘겨서 개인화된 RAG 응답 유도
+        # chatbot_service에서 반환하는 값은 이미 {sender, content, timestamp} 구조입니다.
+        response_data = chatbot_service.get_chat_response(req.user_id, req.message)
         
-        answer = chatbot_service.get_chat_response(req.message)
         return {
             "result": "SUCCESS",
-            "answer": answer
+            **response_data # sender, content, timestamp가 풀려서 들어감
         }
     except Exception as e:
-        print(f"Chat Error: {e}")
+        print(f"Chat API Error: {e}")
         return {
             "result": "FAILURE",
-            "answer": "죄송합니다. 현재 챗봇 서비스를 이용할 수 없습니다."
+            "sender": "bot",
+            "content": "현재 챗봇 서비스를 이용할 수 없습니다.",
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
-    
 
 
 
