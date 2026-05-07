@@ -16,7 +16,7 @@ from recommender import ProductRecommender
 
 load_dotenv()
 
-app = FastAPI(title="은행 키오스크 AI 자동접수 API")
+app = FastAPI(title="BankScope AI API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
