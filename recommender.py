@@ -13,7 +13,7 @@ class ProductRecommender:
         self.scaler = MinMaxScaler()
         self.features_scaled = self.scaler.fit_transform(self.df[self.feature_cols])
 
-    def get_recommendations(self, user_profile, top_k=5): 
+    def get_recommendations(self, user_profile, top_k=20): 
         # 3. 입력 유저 데이터 전처리
         input_df = pd.DataFrame([user_profile])[self.feature_cols]
         input_scaled = self.scaler.transform(input_df)
