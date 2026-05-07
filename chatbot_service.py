@@ -3,8 +3,6 @@ import requests
 import mysql.connector
 from datetime import datetime
 from dotenv import load_dotenv
-from langchain_community.vectorstores import FAISS
-from langchain_core.embeddings import Embeddings
 
 load_dotenv()
 
@@ -17,33 +15,8 @@ DB_CONFIG = {
     'database': os.getenv('DB_NAME', 'bank'),
 }
 
-
-class RAGEmbedder(Embeddings):
-    def embed_documents(self, texts):
-        embeddings = []
-        for text in texts:
-            url = (
-                f"https://generativelanguage.googleapis.com/v1beta/models/"
-                f"text-embedding-004:embedContent?key={GEMINI_API_KEY}"
-            )
-            payload = {
-                "model": "models/text-embedding-004",
-                "content": {"parts": [{"text": text}]}
-            }
-            try:
-                res = requests.post(url, json=payload, timeout=5)
-                data = res.json()
-                if res.status_code == 200 and 'embedding' in data:
-                    embeddings.append(data['embedding']['values'])
-                else:
-                    embeddings.append([0.01] * 768)
-            except Exception as e:
-                print(f"Embedding Error: {e}")
-                embeddings.append([0.01] * 768)
-        return embeddings
-
-    def embed_query(self, text):
-        return self.embed_documents([text])[0]
+# 전체 지식 베이스 (상품 + 사이트 가이드)
+knowledge_base: list[str] = []
 
 
 def load_site_guide() -> list[str]:
@@ -51,7 +24,6 @@ def load_site_guide() -> list[str]:
     try:
         with open(guide_path, encoding='utf-8') as f:
             content = f.read()
-        # 빈 줄 기준으로 문단 분리
         chunks = [c.strip() for c in content.split('\n\n') if c.strip()]
         print(f"[알림] 사이트 가이드 {len(chunks)}개 문단 로드 완료")
         return chunks
@@ -60,14 +32,15 @@ def load_site_guide() -> list[str]:
         return []
 
 
-def build_vector_db():
-    print("[알림] 벡터 DB를 구축합니다...")
+def build_knowledge_base():
+    global knowledge_base
+    print("[알림] 지식 베이스를 구축합니다...")
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
         cursor.execute(
-            "SELECT product_name, description, base_interest_rate, product_category "
-            "FROM financial_product WHERE is_active = 1"
+            "SELECT product_name, description, base_interest_rate, max_interest_rate, "
+            "product_category, target_type FROM financial_product WHERE is_active = 1"
         )
         products = cursor.fetchall()
         cursor.close()
@@ -75,31 +48,37 @@ def build_vector_db():
 
         product_texts = [
             f"상품명: {p['product_name']}, 카테고리: {p['product_category']}, "
-            f"금리: {p['base_interest_rate']}%, 설명: {p['description']}"
+            f"대상: {'법인' if p['target_type'] == 'CORPORATE' else '개인'}, "
+            f"기본금리: {p['base_interest_rate']}%, 최고금리: {p['max_interest_rate']}%, "
+            f"설명: {p['description']}"
             for p in products
         ]
-
-        guide_texts = load_site_guide()
-        all_texts = product_texts + guide_texts
-
-        if not all_texts:
-            print("경고: 임베딩할 데이터가 없습니다.")
-            return None
-
-        db = FAISS.from_texts(all_texts, RAGEmbedder())
-        print(f"성공: 상품 {len(product_texts)}개 + 가이드 {len(guide_texts)}개 벡터 DB 구축 완료")
-        return db
-
     except Exception as e:
-        print(f"DB 로드 실패: {e}")
-        return None
+        print(f"[WARN] 상품 로드 실패: {e}")
+        product_texts = []
+
+    guide_texts = load_site_guide()
+    knowledge_base = product_texts + guide_texts
+    print(f"성공: 상품 {len(product_texts)}개 + 가이드 {len(guide_texts)}개 지식 베이스 구축 완료")
 
 
-vector_db = build_vector_db()
+def keyword_search(query: str, k: int = 6) -> list[str]:
+    """키워드 기반 관련 문서 검색 (임베딩 API 불필요)"""
+    query_words = set(query.replace('?', '').replace('요', '').split())
+    scores = []
+    for text in knowledge_base:
+        score = sum(1 for word in query_words if word in text)
+        scores.append((score, text))
+    scores.sort(key=lambda x: x[0], reverse=True)
+    # 점수 0인 것도 일부 포함 (가이드 전체 맥락 제공)
+    return [text for _, text in scores[:k]]
+
+
+build_knowledge_base()
 
 
 def get_chat_response(user_id: int, user_message: str) -> dict:
-    if vector_db is None:
+    if not knowledge_base:
         return {
             "sender": "bot",
             "content": "데이터베이스 연결 오류로 상담이 불가합니다.",
@@ -107,46 +86,26 @@ def get_chat_response(user_id: int, user_message: str) -> dict:
         }
 
     try:
-        extra_context = ""
-        category_keywords = {
-            "CORPORATE": ["법인", "기업", "사업자", "corporate"],
-            "INDIVIDUAL": ["개인", "직장인", "청년", "시니어"],
-        }
-
-        for target_type, keywords in category_keywords.items():
-            if any(kw in user_message for kw in keywords):
-                conn = mysql.connector.connect(**DB_CONFIG)
-                cursor = conn.cursor(dictionary=True)
-                cursor.execute(
-                    "SELECT product_name, description, base_interest_rate, product_category "
-                    "FROM financial_product WHERE is_active = 1 AND target_type = %s",
-                    (target_type,)
-                )
-                results = cursor.fetchall()
-                cursor.close()
-                conn.close()
-                if results:
-                    extra_context = "\n[카테고리 직접 조회 결과]\n" + "\n".join([
-                        f"상품명: {r['product_name']}, 카테고리: {r['product_category']}, "
-                        f"금리: {r['base_interest_rate']}%, 설명: {r['description']}"
-                        for r in results
-                    ])
-                break
-
-        docs = vector_db.similarity_search(user_message, k=5)
-        context = "\n".join([doc.page_content for doc in docs]) + extra_context
+        context_docs = keyword_search(user_message, k=6)
+        context = "\n".join(context_docs)
 
         url = (
             f"https://generativelanguage.googleapis.com/v1beta/models/"
             f"gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
         )
         prompt = (
-            "당신은 은행 AI 상담원입니다. 아래 정보를 기반으로만 답변하세요. "
-            "정보가 없다면 모른다고 답하세요.\n"
-            f"[참조 데이터]\n{context}\n\n[질문]\n{user_message}"
+            "당신은 BankScope 은행 AI 상담원입니다. "
+            "아래 참조 데이터를 바탕으로 고객 질문에 친절하고 정확하게 답변하세요. "
+            "참조 데이터에 없는 내용은 '직접 방문 또는 고객센터 문의'를 안내하세요.\n\n"
+            f"[참조 데이터]\n{context}\n\n"
+            f"[고객 질문]\n{user_message}"
         )
 
-        response = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=10)
+        response = requests.post(
+            url,
+            json={"contents": [{"parts": [{"text": prompt}]}]},
+            timeout=15
+        )
         result = response.json()
 
         if response.status_code == 200:

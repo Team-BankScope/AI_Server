@@ -10,6 +10,3 @@ python-dotenv==1.2.2
 shap
 matplotlib
 requests
-langchain-community
-langchain-core
-faiss-cpu
