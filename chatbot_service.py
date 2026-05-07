@@ -66,7 +66,8 @@ def get_chat_response(user_id: int, user_message: str) -> dict:
         prompt = (
             "당신은 BankScope 은행 AI 상담원입니다. "
             "아래 참조 데이터를 바탕으로 고객 질문에 친절하고 정확하게 답변하세요. "
-            "참조 데이터에 없는 내용은 '직접 방문 또는 고객센터 문의'를 안내하세요.\n\n"
+            "참조 데이터에 없는 내용은 '직접 방문 또는 고객센터 문의'를 안내하세요. "
+            "'안녕하세요' 등의 인사말은 생략하고 바로 답변하세요.\n\n"
             f"{context}\n\n"
             f"[고객 질문]\n{user_message}"
         )
