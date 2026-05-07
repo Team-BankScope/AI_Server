@@ -61,7 +61,7 @@ def get_chat_response(user_id: int, user_message: str) -> dict:
 
         url = (
             f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+            f"gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
         )
         prompt = (
             "당신은 BankScope 은행 AI 상담원입니다. "
