@@ -21,7 +21,7 @@ DB_CONFIG = {
 class RAGEmbedder(Embeddings):
     def _embed(self, text: str, task_type: str) -> list[float]:
         url = (
-            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"https://generativelanguage.googleapis.com/v1/models/"
             f"text-embedding-004:embedContent?key={GEMINI_API_KEY}"
         )
         payload = {
