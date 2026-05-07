@@ -13,4 +13,4 @@ requests
 langchain-community
 langchain-core
 faiss-cpu
-google-genai
+sentence-transformers

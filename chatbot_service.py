@@ -1,17 +1,14 @@
 import os
 import requests
 import mysql.connector
-from google import genai
-from google.genai import types
 from datetime import datetime
 from dotenv import load_dotenv
 from langchain_community.vectorstores import FAISS
-from langchain_core.embeddings import Embeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings
 
 load_dotenv()
 
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
-_genai_client = genai.Client(api_key=GEMINI_API_KEY)
 
 DB_CONFIG = {
     'host':     os.getenv('DB_HOST', 'localhost'),
@@ -20,27 +17,7 @@ DB_CONFIG = {
     'database': os.getenv('DB_NAME', 'bank'),
 }
 
-
-class RAGEmbedder(Embeddings):
-    def _embed(self, text: str, task_type: str) -> list[float]:
-        result = _genai_client.models.embed_content(
-            model="text-embedding-004",
-            contents=text,
-            config=types.EmbedContentConfig(task_type=task_type),
-        )
-        return result.embeddings[0].values
-
-    def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        result = []
-        for i, text in enumerate(texts):
-            vec = self._embed(text, "RETRIEVAL_DOCUMENT")
-            result.append(vec)
-            if (i + 1) % 5 == 0:
-                print(f"  임베딩 진행: {i + 1}/{len(texts)}")
-        return result
-
-    def embed_query(self, text: str) -> list[float]:
-        return self._embed(text, "RETRIEVAL_QUERY")
+_embedder = HuggingFaceEmbeddings(model_name="paraphrase-multilingual-MiniLM-L12-v2")
 
 
 def load_site_guide() -> list[str]:
@@ -58,7 +35,7 @@ def load_site_guide() -> list[str]:
 
 def build_vector_db():
     global _all_texts
-    print("[알림] RAG 벡터 DB를 구축합니다... (Gemini 임베딩 API 호출 중)")
+    print("[알림] RAG 벡터 DB를 구축합니다...")
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
@@ -90,7 +67,7 @@ def build_vector_db():
         return None
 
     try:
-        db = FAISS.from_texts(all_texts, RAGEmbedder())
+        db = FAISS.from_texts(all_texts, _embedder)
         print(f"성공: 상품 {len(product_texts)}개 + 가이드 {len(guide_texts)}개 RAG 벡터 DB 구축 완료")
         return db
     except Exception as e:
