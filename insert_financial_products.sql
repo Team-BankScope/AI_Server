@@ -1,7 +1,14 @@
 -- BankScope financial_product 초기 데이터 삽입
 -- 실행 전 확인: USE bank;
--- product_category ENUM: DEPOSIT(예금), SAVINGS(적금), LOAN(대출), FUND(펀드)
+-- product_category ENUM: CHECKING, DEPOSIT(예금), SAVINGS(적금), LOAN(대출), FUND(펀드)
 -- target_type: INDIVIDUAL(개인), CORPORATE(법인)
+
+-- 1. FUND enum 추가 (없으면 실행)
+ALTER TABLE `bank`.`financial_product`
+    MODIFY COLUMN `product_category` ENUM('CHECKING','DEPOSIT','SAVINGS','LOAN','FUND') NOT NULL;
+
+-- 2. 이전 실행으로 잘못 들어간 행 정리 (product_category가 빈 값인 행 삭제)
+DELETE FROM `bank`.`financial_product` WHERE product_category = '';
 
 INSERT INTO `bank`.`financial_product`
     (product_category, target_type, product_name, base_interest_rate, max_interest_rate,
