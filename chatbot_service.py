@@ -1,7 +1,8 @@
 import os
 import requests
 import mysql.connector
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from datetime import datetime
 from dotenv import load_dotenv
 from langchain_community.vectorstores import FAISS
@@ -10,7 +11,7 @@ from langchain_core.embeddings import Embeddings
 load_dotenv()
 
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
-genai.configure(api_key=GEMINI_API_KEY)
+_genai_client = genai.Client(api_key=GEMINI_API_KEY)
 
 DB_CONFIG = {
     'host':     os.getenv('DB_HOST', 'localhost'),
@@ -22,24 +23,24 @@ DB_CONFIG = {
 
 class RAGEmbedder(Embeddings):
     def _embed(self, text: str, task_type: str) -> list[float]:
-        result = genai.embed_content(
-            model="models/text-embedding-004",
-            content=text,
-            task_type=task_type,
+        result = _genai_client.models.embed_content(
+            model="text-embedding-004",
+            contents=text,
+            config=types.EmbedContentConfig(task_type=task_type),
         )
-        return result['embedding']
+        return result.embeddings[0].values
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         result = []
         for i, text in enumerate(texts):
-            vec = self._embed(text, "retrieval_document")
+            vec = self._embed(text, "RETRIEVAL_DOCUMENT")
             result.append(vec)
             if (i + 1) % 5 == 0:
                 print(f"  임베딩 진행: {i + 1}/{len(texts)}")
         return result
 
     def embed_query(self, text: str) -> list[float]:
-        return self._embed(text, "retrieval_query")
+        return self._embed(text, "RETRIEVAL_QUERY")
 
 
 def load_site_guide() -> list[str]:
