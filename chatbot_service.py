@@ -2,8 +2,11 @@ import os
 import requests
 import mysql.connector
 from datetime import datetime
+from dotenv import load_dotenv
 from langchain_community.vectorstores import FAISS
 from langchain_core.embeddings import Embeddings
+
+load_dotenv()
 
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
 
