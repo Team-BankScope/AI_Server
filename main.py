@@ -10,10 +10,20 @@ from pydantic import BaseModel
 import mysql.connector
 from mysql.connector import pooling
 from mysql.connector.errors import Error
+from fastapi.middleware.cors import CORSMiddleware
+import chatbot_service
+from recommender import ProductRecommender
 
 load_dotenv()
 
 app = FastAPI(title="은행 키오스크 AI 자동접수 API")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 try:
     model = joblib.load('bank_model.pkl')
@@ -42,6 +52,12 @@ except Error as e:
     print(f"[WARN] DB 연결 풀 초기화 실패: {e}")
     connection_pool = None
 
+try:
+    recommender_obj = ProductRecommender('bank_data_2.csv')
+except Exception as e:
+    print(f"[WARN] 추천 모델 초기화 실패: {e}")
+    recommender_obj = None
+
 
 @contextlib.contextmanager
 def get_db_cursor():
@@ -62,6 +78,11 @@ def get_db_cursor():
 
 class AutoTaskRequest(BaseModel):
     user_id: int
+
+
+class ChatRequest(BaseModel):
+    user_id: int
+    message: str
 
 
 def get_min_level(level_str: str) -> int:
@@ -309,5 +330,90 @@ def auto_insert_task(req: AutoTaskRequest):
         raise
     except Error as db_err:
         raise HTTPException(status_code=500, detail=f"Database error: {str(db_err)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
+
+
+@app.post("/py/chat")
+async def chat_bot(req: ChatRequest):
+    try:
+        response_data = chatbot_service.get_chat_response(req.user_id, req.message)
+        return {"result": "SUCCESS", **response_data}
+    except Exception as e:
+        return {
+            "result": "FAILURE",
+            "sender": "bot",
+            "content": "현재 챗봇 서비스를 이용할 수 없습니다.",
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+
+@app.get("/py/recommend/{user_id}")
+def get_user_recommendation(user_id: int):
+    if recommender_obj is None:
+        raise HTTPException(status_code=500, detail="추천 모델이 초기화되지 않았습니다.")
+
+    try:
+        with get_db_cursor() as (conn, cursor):
+            cursor.execute("""
+                SELECT
+                    u.age,
+                    u.user_type,
+                    COALESCE((SELECT SUM(balance) FROM account WHERE user_id = u.id), 0) AS total_balance,
+                    CASE WHEN EXISTS (SELECT 1 FROM loan WHERE user_id = u.id AND status = 'ACTIVE')
+                    THEN 1 ELSE 0 END AS has_active_loan,
+                    (
+                        SELECT COUNT(*)
+                        FROM transaction_history th
+                        JOIN account a ON th.account_id = a.account_id
+                        WHERE a.user_id = u.id
+                          AND th.created_at >= DATE_SUB(NOW(), INTERVAL 1 MONTH)
+                    ) AS recent_tx_count
+                FROM user u WHERE u.id = %s
+            """, (user_id,))
+            user_data = cursor.fetchone()
+
+        if not user_data:
+            raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
+
+        age_str = str(user_data['age']).replace('대', '').replace('세', '').strip() if user_data['age'] else '30'
+        user_type_str = str(user_data['user_type']).upper() if user_data['user_type'] else ''
+        user_profile = {
+            "age":             int(age_str) if age_str.isdigit() else 30,
+            "is_corporate":    1 if user_type_str in ('CORPORATE', '기업', '법인', 'BUSINESS') else 0,
+            "total_balance":   int(user_data['total_balance']),
+            "has_active_loan": int(user_data['has_active_loan']),
+            "recent_tx_count": int(user_data['recent_tx_count']),
+        }
+
+        recommended_names = recommender_obj.get_recommendations(user_profile)
+
+        products_list = []
+        with get_db_cursor() as (conn, cursor):
+            for name in recommended_names:
+                cursor.execute("SELECT * FROM financial_product WHERE product_name = %s", (name,))
+                product_data = cursor.fetchone()
+                if product_data:
+                    products_list.append({
+                        "productId":         product_data['product_id'],
+                        "productCategory":   product_data['product_category'],
+                        "targetType":        product_data['target_type'],
+                        "productName":       product_data['product_name'],
+                        "baseInterestRate":  float(product_data['base_interest_rate']),
+                        "maxInterestRate":   float(product_data['max_interest_rate']),
+                        "minDurationMonths": product_data['min_duration_months'],
+                        "maxDurationMonths": product_data['max_duration_months'],
+                        "minAmount":         int(product_data['min_amount']),
+                        "maxAmount":         int(product_data['max_amount']),
+                        "description":       product_data['description'],
+                        "isActive":          bool(product_data['is_active'])
+                    })
+
+        return {"result": "SUCCESS", "user_id": user_id, "products": products_list}
+
+    except HTTPException:
+        raise
+    except RuntimeError:
+        raise HTTPException(status_code=500, detail="DB 연결 불가")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
