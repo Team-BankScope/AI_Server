@@ -10,9 +10,10 @@ class ProductRecommender:
         self.scaler = MinMaxScaler()
         self.features_scaled = self.scaler.fit_transform(self.df[self.feature_cols])
 
-    def get_recommendations(self, user_profile, top_k=20):
+    def get_recommendations(self, user_profile, top_k=20, top_n=3):
         input_df = pd.DataFrame([user_profile])[self.feature_cols]
         input_scaled = self.scaler.transform(input_df)
         sim_scores = cosine_similarity(input_scaled, self.features_scaled)[0]
         similar_indices = sim_scores.argsort()[-top_k:][::-1]
-        return self.df.iloc[similar_indices]['target_product'].unique().tolist()
+        products = self.df.iloc[similar_indices]['target_product']
+        return products.value_counts().head(top_n).index.tolist()

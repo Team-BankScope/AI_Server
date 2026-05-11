@@ -129,7 +129,10 @@ class ChatRequest(BaseModel):
 
 
 def get_min_level(level_str: str) -> int:
-    return {'LEVEL_1': 1, 'LEVEL_2': 3, 'LEVEL_3': 5}.get(level_str, 1)
+    try:
+        return int(level_str.replace('LEVEL_', ''))
+    except:
+        return 1
 
 
 def get_min_level_by_detail_type(task_detail_type: str) -> int:
@@ -276,11 +279,13 @@ def auto_insert_task(req: AutoTaskRequest):
             # 3. 업무 매핑
             details          = determine_task_details(pred, features)
             task_type        = details["task_type"]
-            assigned_level   = details["assigned_level"]
             processing_time  = details["processing_time"]
             prefix           = details["prefix"]
             task_detail_type = details["task_detail_type"]
             min_level        = get_min_level_by_detail_type(task_detail_type)
+
+            # assigned_level을 세부 업무 min_level 기준으로 산정
+            assigned_level = f"LEVEL_{min_level}"
 
             # 4. 티켓 번호 생성 (FOR UPDATE 행 잠금 → 동시 요청 간 번호 중복 방지)
             cursor.execute(
@@ -324,10 +329,25 @@ def auto_insert_task(req: AutoTaskRequest):
                     if lvl > max_level:
                         max_level = lvl
                 cursor.execute(
-                    "SELECT id FROM member WHERE level >= %s AND status = 1 LIMIT 1",
+                    """
+                    SELECT m.id FROM member m
+                    LEFT JOIN (
+                        SELECT member_id, COUNT(*) AS waiting_cnt
+                        FROM task WHERE status = 'WAITING'
+                        GROUP BY member_id
+                    ) w ON m.id = w.member_id
+                    WHERE m.level >= %s AND m.status = 1
+                    ORDER BY COALESCE(w.waiting_cnt, 0) ASC, m.level ASC
+                    LIMIT 1
+                    """,
                     (max_level,)
                 )
                 member_row = cursor.fetchone()
+                if not member_row:
+                    cursor.execute(
+                        "SELECT id FROM member WHERE status = 1 ORDER BY level DESC LIMIT 1"
+                    )
+                    member_row = cursor.fetchone()
                 if member_row:
                     member_id = member_row['id']
                     fmt = ','.join(['%s'] * len(task_ids))
@@ -337,10 +357,25 @@ def auto_insert_task(req: AutoTaskRequest):
                     )
             else:
                 cursor.execute(
-                    "SELECT id FROM member WHERE level >= %s AND status = 1 LIMIT 1",
+                    """
+                    SELECT m.id FROM member m
+                    LEFT JOIN (
+                        SELECT member_id, COUNT(*) AS waiting_cnt
+                        FROM task WHERE status = 'WAITING'
+                        GROUP BY member_id
+                    ) w ON m.id = w.member_id
+                    WHERE m.level >= %s AND m.status = 1
+                    ORDER BY COALESCE(w.waiting_cnt, 0) ASC, m.level ASC
+                    LIMIT 1
+                    """,
                     (min_level,)
                 )
                 member_row = cursor.fetchone()
+                if not member_row:
+                    cursor.execute(
+                        "SELECT id FROM member WHERE status = 1 ORDER BY level DESC LIMIT 1"
+                    )
+                    member_row = cursor.fetchone()
                 if member_row:
                     member_id = member_row['id']
 
@@ -446,8 +481,8 @@ def get_user_recommendation(user_id: int):
                         "maxInterestRate":   float(product_data['max_interest_rate']),
                         "minDurationMonths": product_data['min_duration_months'],
                         "maxDurationMonths": product_data['max_duration_months'],
-                        "minAmount":         int(product_data['min_amount']),
-                        "maxAmount":         int(product_data['max_amount']),
+                        "minAmount":         int(product_data['min_amount']) if product_data['min_amount'] is not None else None,
+                        "maxAmount":         int(product_data['max_amount']) if product_data['max_amount'] is not None else None,
                         "description":       product_data['description'],
                         "isActive":          bool(product_data['is_active'])
                     })
