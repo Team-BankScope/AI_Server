@@ -73,6 +73,15 @@ try:
     base_df = pd.read_csv('bank_data_2.csv')
     try:
         with get_db_cursor() as (conn, cursor):
+            # 상품명 → product_id 매핑 (CSV의 구 상품명을 ID로 변환)
+            cursor.execute("SELECT product_id, product_name FROM financial_product WHERE is_active = 1")
+            name_to_id = {row['product_name']: row['product_id'] for row in cursor.fetchall()}
+
+            # CSV의 target_product(상품명) → product_id 변환, DB에 없는 구 상품 행은 제거
+            base_df['target_product'] = base_df['target_product'].map(name_to_id)
+            base_df = base_df.dropna(subset=['target_product'])
+            base_df['target_product'] = base_df['target_product'].astype(int)
+
             cursor.execute("""
                 SELECT
                     u.age,
@@ -86,7 +95,7 @@ try:
                         WHERE a.user_id = u.id
                           AND th.created_at >= DATE_SUB(NOW(), INTERVAL 1 MONTH)
                     ) AS recent_tx_count,
-                    fp.product_name AS target_product
+                    fp.product_id AS target_product
                 FROM user u
                 JOIN product_subscription ps ON u.id = ps.user_id AND ps.status = 'ACTIVE'
                 JOIN financial_product fp ON ps.product_id = fp.product_id
@@ -464,12 +473,15 @@ def get_user_recommendation(user_id: int):
             "recent_tx_count": int(user_data['recent_tx_count']),
         }
 
-        recommended_names = recommender_obj.get_recommendations(user_profile)
+        recommended_ids = recommender_obj.get_recommendations(user_profile)
 
         products_list = []
         with get_db_cursor() as (conn, cursor):
-            for name in recommended_names:
-                cursor.execute("SELECT * FROM financial_product WHERE product_name = %s", (name,))
+            for product_id in recommended_ids:
+                cursor.execute(
+                    "SELECT * FROM financial_product WHERE product_id = %s AND is_active = 1",
+                    (int(product_id),)
+                )
                 product_data = cursor.fetchone()
                 if product_data:
                     products_list.append({
