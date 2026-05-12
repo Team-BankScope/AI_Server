@@ -424,7 +424,7 @@ def auto_insert_task(req: AutoTaskRequest):
 @app.post("/py/chat")
 async def chat_bot(req: ChatRequest):
     try:
-        response_data = chatbot_service.get_chat_response(req.user_id, req.message)
+        response_data = chatbot_service.get_chat_response(req.user_id, req.message, get_db_cursor)
         return {"result": "SUCCESS", **response_data}
     except Exception as e:
         return {

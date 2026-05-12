@@ -1,6 +1,5 @@
 import os
 import requests
-import mysql.connector
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -8,12 +7,6 @@ load_dotenv()
 
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
 
-DB_CONFIG = {
-    'host':     os.getenv('DB_HOST', 'localhost'),
-    'user':     os.getenv('DB_USER', 'root'),
-    'password': os.getenv('DB_PASSWORD', ''),
-    'database': os.getenv('DB_NAME', 'bank'),
-}
 
 def _load_site_guide() -> str:
     guide_path = os.path.join(os.path.dirname(__file__), 'site_guide.txt')
@@ -24,20 +17,18 @@ def _load_site_guide() -> str:
         print(f"[WARN] 사이트 가이드 로드 실패: {e}")
         return ""
 
-def _load_products() -> str:
+
+def _load_products(get_db_cursor) -> str:
     try:
-        conn = mysql.connector.connect(**DB_CONFIG)
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute(
-            "SELECT product_name, description, base_interest_rate, max_interest_rate, "
-            "product_category, target_type FROM financial_product WHERE is_active = 1"
-        )
-        products = cursor.fetchall()
-        cursor.close()
-        conn.close()
+        with get_db_cursor() as (conn, cursor):
+            cursor.execute(
+                "SELECT product_name, description, base_interest_rate, max_interest_rate, "
+                "product_category, target_type FROM financial_product WHERE is_active = 1"
+            )
+            products = cursor.fetchall()
         lines = [
             f"- {p['product_name']} ({p['product_category']}, "
-            f"{'법인' if p['target_type'] == 'CORPORATE' else '개인'}): "
+            f"{'법인' if p['target_type'] == 'CORPORATE' else '개인' if p['target_type'] == 'INDIVIDUAL' else '공통'}): "
             f"기본금리 {p['base_interest_rate']}%, 최고금리 {p['max_interest_rate']}%, "
             f"{p['description']}"
             for p in products
@@ -47,13 +38,14 @@ def _load_products() -> str:
         print(f"[WARN] 상품 로드 실패: {e}")
         return ""
 
+
 _SITE_GUIDE = _load_site_guide()
 print("[알림] 챗봇 사이트 가이드 로드 완료")
 
 
-def get_chat_response(user_id: int, user_message: str) -> dict:
+def get_chat_response(user_id: int, user_message: str, get_db_cursor) -> dict:
     try:
-        products_text = _load_products()
+        products_text = _load_products(get_db_cursor)
 
         context = f"[사이트 이용 가이드]\n{_SITE_GUIDE}"
         if products_text:
