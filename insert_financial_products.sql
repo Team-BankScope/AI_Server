@@ -1,8 +1,11 @@
 -- BankScope financial_product 초기 데이터 삽입
 -- 실행 전 확인: USE bank;
 -- product_category ENUM: CHECKING(입출금), DEPOSIT(예금), SAVINGS(적금), LOAN(대출)
--- target_type: INDIVIDUAL(개인), CORPORATE(법인)
+-- target_type: INDIVIDUAL(개인), CORPORATE(법인), ALL(공통)
 
+SET FOREIGN_KEY_CHECKS = 0;
+DELETE FROM `bank`.`financial_product`;
+SET FOREIGN_KEY_CHECKS = 1;
 
 INSERT INTO `bank`.`financial_product`
     (product_category, target_type, product_name, base_interest_rate, max_interest_rate,
@@ -36,44 +39,44 @@ VALUES
  '내 집 마련을 목표로 하는 장기 적금입니다. 청약저축 연계 시 추가 우대금리가 적용됩니다.', 1),
 
 ('SAVINGS', 'CORPORATE', 'BankScope 기업 정기적금',
- 3.20, 4.00, 12, 60, 100000, 5000000,
+ 3.20, 4.00, 12, 60, 1000000, 100000000,
  '소상공인 및 중소기업을 위한 정기적금입니다. 세금 우대 혜택이 적용됩니다.', 1),
 
 -- 대출 (LOAN)
-('LOAN', 'INDIVIDUAL', '신용대출',
+('LOAN', 'INDIVIDUAL', 'BankScope 신용대출',
  5.50, 15.00, 1, 60, 1000000, 50000000,
  '신용등급에 따라 최대 5천만 원까지 대출 가능한 개인 신용대출 상품입니다. 별도의 담보 없이 빠르게 신청하실 수 있습니다.', 1),
 
-('LOAN', 'INDIVIDUAL', '주택담보대출',
+('LOAN', 'INDIVIDUAL', 'BankScope 주택담보대출',
  3.80, 6.50, 12, 360, 30000000, 1000000000,
  '주택을 담보로 장기 저금리로 이용할 수 있는 대출 상품입니다. LTV·DTI 기준 내에서 최대 10억 원까지 대출 가능합니다.', 1),
 
-('LOAN', 'INDIVIDUAL', '전세자금대출',
+('LOAN', 'INDIVIDUAL', 'BankScope 전세자금대출',
  3.20, 5.00, 6, 24, 10000000, 300000000,
  '전세 계약자를 위한 보증 대출 상품입니다. HUG·HF 보증 연계로 최대 3억 원까지 지원합니다.', 1),
 
-('LOAN', 'INDIVIDUAL', '대출 상환',
- 0.00, 0.00, 1, 360, 100000, 1000000000,
- '기존 대출의 원리금을 상환하는 서비스입니다. 중도 상환 수수료 면제 조건을 확인하세요.', 1),
 
-('LOAN', 'CORPORATE', '소상공인 대출',
+('LOAN', 'ALL', 'BankScope 소상공인 대출',
  4.00, 8.00, 6, 60, 5000000, 500000000,
  '소상공인 및 자영업자를 위한 운전자금·시설자금 대출입니다. 정책자금 연계 시 저금리 혜택을 받을 수 있습니다.', 1),
 
-('LOAN', 'CORPORATE', '기업대출',
+('LOAN', 'CORPORATE', 'BankScope 기업대출',
  4.50, 9.00, 12, 120, 10000000, 3000000000,
  '중소·중견기업의 운영 및 시설 투자를 위한 기업금융 대출 상품입니다. 최대 30억 원까지 지원합니다.', 1),
 
--- 펀드성 상품 (SAVINGS로 분류 - 장기 적립 성격)
-('SAVINGS', 'INDIVIDUAL', 'BankScope 안전성장펀드',
- 4.00, 12.00, 6, 36, 1000000, NULL,
- '채권형과 주식형을 혼합한 중위험 중수익 상품입니다. 전문 운용역이 분산 투자하여 안정적 수익을 추구합니다.', 1),
+-- 공통 (ALL)
+('CHECKING', 'INDIVIDUAL', 'BankScope 개인 입출금 통장',
+ 0.10, 0.50, NULL, NULL, 0, NULL,
+ '개인 고객을 위한 기본 입출금 통장입니다. 급여이체, 공과금 자동납부, 카드 결제 등 일상적인 금융 거래에 최적화되어 있습니다.', 1),
 
-('SAVINGS', 'INDIVIDUAL', 'BankScope 퇴직연금펀드',
- 3.50, 10.00, 12, NULL, 500000, NULL,
- '노후 대비를 위한 퇴직연금 전용 상품입니다. 세액공제 혜택과 함께 장기 복리 수익을 기대할 수 있습니다.', 1),
+('CHECKING', 'ALL', 'BankScope 자유입출금 통장',
+ 0.10, 1.00, NULL, NULL, 0, NULL,
+ '개인과 법인 모두 이용 가능한 기본 입출금 통장입니다. 언제든지 자유롭게 입출금할 수 있으며 인터넷·모바일뱅킹을 통한 이체 서비스를 제공합니다.', 1),
 
--- MMF (CHECKING으로 분류 - 즉시 환매 단기 운용)
-('CHECKING', 'CORPORATE', 'BankScope 법인 MMF',
- 2.80, 4.00, 1, NULL, 10000000, NULL,
- '법인 여유 자금을 단기 운용할 수 있는 머니마켓 상품입니다. 매일 수익이 정산되며 즉시 환매가 가능합니다.', 1);
+('DEPOSIT', 'ALL', 'BankScope 단기 정기예금',
+ 2.50, 3.50, 1, 12, 100000, NULL,
+ '개인·법인 모두 가입 가능한 단기 정기예금입니다. 1개월 이상 단기 자금 운용에 적합하며 만기 시 자동 연장 옵션이 제공됩니다.', 1),
+
+('SAVINGS', 'ALL', 'BankScope 목표 적금',
+ 3.50, 4.50, 6, 36, 10000, 2000000,
+ '개인·법인 구분 없이 목표 금액을 정해두고 자유롭게 적립하는 적금입니다. 목표 달성 시 추가 우대금리가 적용됩니다.', 1);
